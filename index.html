@@ -1,136 +1,2727 @@
--- ============================================================================
--- SUPABASE DATABASE SCHEMA FOR MเบียวTI (แบบทดสอบวัดระดับความเบียวออนไลน์)
--- รองรับการเก็บข้อมูลครบทั้ง 4 ส่วนตามโครงสร้างแอปพลิเคชัน
--- ============================================================================
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MเบียวTI — แบบทดสอบวัดระดับความเบียวออนไลน์</title>
+    <!-- โหลด Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        /* ==========================================================================
+           1. FONT DEFINITIONS & CSS VARIABLES
+           ========================================================================== */
+        /* หมายเหตุ: กำหนด Font Stack สำรองที่ใกล้เคียง Chonburi และ Inter 
+           เพื่อรองรับกรณีที่เครื่องผู้ใช้ไม่มีฟอนต์ติดตั้งไว้ เนื่องจากห้ามใช้ External CDN */
+        :root {
+            --color-primary-pink: #EF1BD8;
+            --color-deep-pink: #D913A0;
+            --color-neon-magenta: #FC02C7;
+            --color-neon-green: #2AF151;
+            --color-bright-green: #2BF577;
+            
+            --bg-editorial: #FAFAFA;
+            --surface-white: #FFFFFF;
+            --text-ink: #111111;
+            --text-muted: #555555;
+            --border-ink: #111111;
+            --disabled-bg: #E5E5E5;
+            --disabled-text: #999999;
+            --error-red: #FF1E42;
 
--- เปิดใช้งาน Extension สำหรับสร้าง UUID อัตโนมัติ
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            --font-display: 'Chonburi', 'Thonburi', 'Sarabun', Georgia, serif;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 
--- ============================================================================
--- 1. ตารางข้อมูล User ก่อนทำการวัดระดับ (users_profile)
--- เก็บข้อมูลผู้ใช้งานเบื้องต้น นามแฝง/ฉายา และข้อมูลอุปกรณ์ก่อนเริ่มทำแบบประเมิน
--- ============================================================================
-CREATE TABLE public.users_profile (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    codename VARCHAR(100) NOT NULL, -- นามแฝง / ฉายาประจำตัวที่กรอกหน้าแรก
-    device_type VARCHAR(50),        -- ประเภทอุปกรณ์ เช่น mobile, desktop
-    user_agent TEXT,                -- ข้อมูลเบราว์เซอร์
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+            --radius-sm: 8px;
+            --radius-md: 16px;
+            --radius-lg: 24px;
+            --radius-pill: 9999px;
 
-COMMENT ON TABLE public.users_profile IS 'ส่วนที่ 1: เก็บข้อมูล User ก่อนทำการวัดระดับความเบียว';
+            --shadow-brutal: 4px 4px 0px var(--border-ink);
+            --shadow-brutal-hover: 6px 6px 0px var(--border-ink);
+            --shadow-pink: 4px 4px 0px var(--color-primary-pink);
+            --shadow-green: 4px 4px 0px var(--color-neon-green);
+        }
 
--- ============================================================================
--- 2. ตารางระดับความเบียวหลังการวัดระดับ (assessment_results)
--- เก็บผลลัพธ์คะแนนรวม รหัสบุคลิกภาพ MเบียวTI และฉายาที่ได้รับหลังทำแบบทดสอบเสร็จ
--- ============================================================================
-CREATE TABLE public.assessment_results (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES public.users_profile(id) ON DELETE CASCADE,
-    total_score INTEGER NOT NULL CHECK (total_score >= 8 AND total_score <= 56),
-    max_score INTEGER NOT NULL DEFAULT 56,
-    mbiawti_code VARCHAR(20) NOT NULL,   -- เช่น 'NORM-1', 'COOL-4', 'CHUN-7', 'GOD-99'
-    persona_title VARCHAR(150) NOT NULL, -- เช่น 'มหาเทพผู้บัญชาการโชคชะตา'
-    aura_level VARCHAR(100),             -- เช่น '9,999% (ไร้เทียมทาน)'
-    completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+        /* ==========================================================================
+           2. RESET & BASE EDITORIAL STYLES
+           ========================================================================== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
 
-COMMENT ON TABLE public.assessment_results IS 'ส่วนที่ 2: เก็บผลลัพธ์ระดับความเบียวและรหัสบุคลิกภาพหลังการวัดระดับ';
+        body {
+            background-color: var(--bg-editorial);
+            color: var(--text-ink);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 10%, rgba(239, 27, 216, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(42, 241, 81, 0.08) 0%, transparent 40%);
+        }
 
--- ============================================================================
--- 3. ตารางข้อมูลความชอบ ความสนใจ เรื่องต่างๆ ในแบบสอบถาม (user_preferences_answers)
--- เก็บคำตอบรายข้อ (สถานการณ์ชีวิตประจำวัน, บทสนทนา, กิจกรรม, อาหาร, ซีรีส์, สไตล์ไอเทม)
--- ============================================================================
-CREATE TABLE public.user_preferences_answers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    assessment_id UUID NOT NULL REFERENCES public.assessment_results(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES public.users_profile(id) ON DELETE CASCADE,
-    question_id INTEGER NOT NULL,        -- ลำดับข้อคำถาม (1 - 8)
-    category VARCHAR(100) NOT NULL,      -- หมวดหมู่ เช่น 'อาหารและเครื่องดื่มที่ชอบทาน', 'ซีรีส์และภาพยนตร์ที่สนใจ'
-    question_type VARCHAR(20) NOT NULL CHECK (question_type IN ('choice', 'slider', 'checkbox')),
-    selected_options JSONB NOT NULL,     -- เก็บรายละเอียดตัวเลือกที่เลือก เช่น ["fashion", "gadget"] หรือระดับ 1-7
-    question_score INTEGER NOT NULL,     -- คะแนนที่ได้ในข้อนั้น (1 - 7)
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+        /* Editorial Top Bar */
+        header.editorial-header {
+            width: 100%;
+            border-bottom: 2px solid var(--border-ink);
+            background-color: var(--surface-white);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
 
-COMMENT ON TABLE public.user_preferences_answers IS 'ส่วนที่ 3: เก็บข้อมูลความชอบ ความสนใจ และคำตอบรายข้อในแบบสอบถาม';
+        .brand-logo {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            letter-spacing: -0.02em;
+            color: var(--text-ink);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
 
--- ============================================================================
--- 4. ตารางข้อมูล Transaction ความสนใจในผลิตภัณฑ์ที่แนะนำ (product_recommendation_transactions)
--- เก็บข้อมูลว่าหลังวัดระดับแล้ว User สนใจสินค้าที่เว็บแนะนำหรือไม่ และคลิกลิงก์สินค้าชิ้นใดบ้าง
--- ============================================================================
--- ตารางอ้างอิงรายการสินค้าในระบบ (Master Products)
-CREATE TABLE public.recommended_products_catalog (
-    product_id VARCHAR(50) PRIMARY KEY,  -- เช่น 'PROD-FASH-01', 'PROD-GADG-02'
-    category_tag VARCHAR(50) NOT NULL,   -- 'fashion', 'gadget', 'beverage', 'lifestyle'
-    product_name VARCHAR(200) NOT NULL,
-    price NUMERIC(10, 2) NOT NULL,
-    product_url TEXT NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE
-);
+        .brand-badge {
+            background-color: var(--color-neon-green);
+            color: var(--text-ink);
+            font-family: var(--font-sans);
+            font-size: 0.7rem;
+            font-weight: 800;
+            padding: 2px 8px;
+            border: 1.5px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+            text-transform: uppercase;
+        }
 
--- เพิ่มข้อมูลสินค้าตั้งต้นให้ตรงกับในหน้าเว็บ
-INSERT INTO public.recommended_products_catalog (product_id, category_tag, product_name, price, product_url) VALUES
-('PROD-FASH-01', 'fashion', 'เสื้อคลุมทรง Oversized สีดำรัตติกาล & แหวนเงินสลักลาย', 890.00, 'https://example.com/shop/dark-overcoat-ring?ref=mbiawti'),
-('PROD-GADG-02', 'gadget', 'หูฟังไร้สายตัดเสียงรบกวน (Soundtrack Mode Edition)', 1590.00, 'https://example.com/shop/anc-headphones?ref=mbiawti'),
-('PROD-BEV-03', 'beverage', 'ชุดดริปกาแฟ Dark Abyss Roast & แก้วทัมเบลอร์สีดำด้าน', 550.00, 'https://example.com/shop/dark-abyss-coffee?ref=mbiawti'),
-('PROD-LIFE-04', 'lifestyle', 'สมุดบันทึกปกหนังแผนการลับ & ปากกาหมึกเจลสีดำสนิท', 320.00, 'https://example.com/shop/strategy-notebook?ref=mbiawti');
+        .header-meta {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: none;
+        }
 
--- ตารางเก็บ Transaction การตอบสนองต่อสินค้าแนะนำของผู้ใช้แต่ละคน
-CREATE TABLE public.product_recommendation_transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    assessment_id UUID NOT NULL REFERENCES public.assessment_results(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES public.users_profile(id) ON DELETE CASCADE,
-    is_interested BOOLEAN,               -- TRUE = สนใจ, FALSE = ไม่สนใจ, NULL = ยังไม่ได้ระบุ
-    shown_product_ids JSONB NOT NULL,    -- รายการรหัสสินค้าทั้งหมดที่ระบบแนะนำให้ user คนนี้เห็น
-    clicked_products JSONB DEFAULT '[]'::jsonb, -- รายการสินค้าที่ user กดคลิกลิงก์สั่งซื้อ พร้อมเวลาที่คลิก
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+        .header-user-pill {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            background-color: var(--bg-editorial);
+            border: 1.5px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+            padding: 4px 12px;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
 
-COMMENT ON TABLE public.product_recommendation_transactions IS 'ส่วนที่ 4: เก็บข้อมูล Transaction ว่าหลังวัดระดับ User สนใจสินค้าที่แนะนำหรือไม่ และสนใจชิ้นใดบ้าง';
+        .header-user-pill.active {
+            display: inline-flex;
+        }
 
--- ============================================================================
--- 5. ตาราง LEADERBOARD (leaderboard)
--- ตารางสรุปอันดับคะแนนรวม รหัสบุคลิกภาพ และสถานะความสนใจสินค้าสำหรับแสดงผลหน้าเว็บแบบรวดเร็ว
--- ============================================================================
-CREATE TABLE public.leaderboard (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES public.users_profile(id) ON DELETE CASCADE,
-    assessment_id UUID REFERENCES public.assessment_results(id) ON DELETE CASCADE,
-    codename VARCHAR(100) NOT NULL,
-    total_score INTEGER NOT NULL,
-    mbiawti_code VARCHAR(20) NOT NULL,
-    persona_title VARCHAR(150) NOT NULL,
-    is_interested_product BOOLEAN,
-    interested_products JSONB DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+        .btn-logout-mini {
+            background: var(--color-primary-pink);
+            color: #fff;
+            border: 1px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+            padding: 2px 8px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            cursor: pointer;
+        }
 
-COMMENT ON TABLE public.leaderboard IS 'ตารางจัดอันดับคะแนนความเบียวรวม (Leaderboard) เชื่อมโยงกับผลลัพธ์ทั้งหมด';
+        @media (min-width: 640px) {
+            .header-meta {
+                display: block;
+            }
+        }
 
--- ============================================================================
--- INDEXES & ROW LEVEL SECURITY (RLS) สำหรับ SUPABASE
--- ============================================================================
-CREATE INDEX idx_results_user_id ON public.assessment_results(user_id);
-CREATE INDEX idx_answers_assessment_id ON public.user_preferences_answers(assessment_id);
-CREATE INDEX idx_transactions_assessment_id ON public.product_recommendation_transactions(assessment_id);
-CREATE INDEX idx_leaderboard_score ON public.leaderboard(total_score DESC, created_at ASC);
+        /* Main Container */
+        main.app-container {
+            width: 100%;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 24px 16px 64px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
 
--- เปิดใช้งาน RLS เพื่อความปลอดภัยบน Supabase
-ALTER TABLE public.users_profile ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.assessment_results ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_preferences_answers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.recommended_products_catalog ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.product_recommendation_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.leaderboard ENABLE ROW LEVEL SECURITY;
+        /* ==========================================================================
+           3. VIEWS & TRANSITIONS
+           ========================================================================== */
+        .view-section {
+            display: none;
+            animation: fadeSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
 
--- สร้าง Policy อนุญาตให้ผู้เล่นแบบ Anonymous (Public Web) สามารถบันทึกและอ่านข้อมูลได้
-CREATE POLICY "Allow public insert users_profile" ON public.users_profile FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public insert assessment_results" ON public.assessment_results FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public insert user_preferences_answers" ON public.user_preferences_answers FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public select products_catalog" ON public.recommended_products_catalog FOR SELECT USING (true);
-CREATE POLICY "Allow public insert transactions" ON public.product_recommendation_transactions FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update transactions" ON public.product_recommendation_transactions FOR UPDATE USING (true);
-CREATE POLICY "Allow public select leaderboard" ON public.leaderboard FOR SELECT USING (true);
-CREATE POLICY "Allow public insert leaderboard" ON public.leaderboard FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update leaderboard" ON public.leaderboard FOR UPDATE USING (true);
+        .view-section.active {
+            display: block;
+        }
+
+        @keyframes fadeSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ==========================================================================
+           4. HERO / INTRO SECTION
+           ========================================================================== */
+        .editorial-card {
+            background-color: var(--surface-white);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-lg);
+            padding: 32px 24px;
+            box-shadow: var(--shadow-brutal);
+            position: relative;
+        }
+
+        @media (min-width: 640px) {
+            .editorial-card {
+                padding: 48px 40px;
+            }
+        }
+
+        .issue-tag {
+            display: inline-block;
+            background-color: var(--color-primary-pink);
+            color: var(--surface-white);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: var(--radius-pill);
+            border: 1.5px solid var(--border-ink);
+            margin-bottom: 16px;
+            letter-spacing: 0.05em;
+        }
+
+        h1.hero-title {
+            font-family: var(--font-display);
+            font-size: 2.25rem;
+            line-height: 1.2;
+            margin-bottom: 16px;
+            color: var(--text-ink);
+        }
+
+        @media (min-width: 640px) {
+            h1.hero-title {
+                font-size: 3.25rem;
+            }
+        }
+
+        .highlight-pink {
+            color: var(--color-deep-pink);
+            text-decoration: underline;
+            text-decoration-color: var(--color-neon-green);
+            text-decoration-thickness: 4px;
+            text-underline-offset: 4px;
+        }
+
+        .hero-subtitle {
+            font-size: 1.05rem;
+            color: var(--text-muted);
+            margin-bottom: 28px;
+            font-weight: 400;
+        }
+
+        /* Input Group for Codename */
+        .input-group {
+            margin-bottom: 24px;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--text-ink);
+        }
+
+        .editorial-input {
+            width: 100%;
+            padding: 14px 18px;
+            font-family: var(--font-sans);
+            font-size: 1rem;
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            background-color: var(--bg-editorial);
+            color: var(--text-ink);
+            transition: all 0.2s ease;
+        }
+
+        .editorial-input:focus {
+            outline: none;
+            background-color: var(--surface-white);
+            border-color: var(--color-primary-pink);
+            box-shadow: 0 0 0 3px rgba(239, 27, 216, 0.2);
+        }
+
+        .editorial-input.error {
+            border-color: var(--error-red);
+            background-color: #FFF5F7;
+        }
+
+        /* ==========================================================================
+           AUTH TABS & FORMS (SIGN IN / SIGN UP)
+           ========================================================================== */
+        .auth-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            background-color: var(--bg-editorial);
+            padding: 6px;
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+        }
+
+        .auth-tab-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: var(--radius-pill);
+            border: none;
+            background: transparent;
+            font-family: var(--font-sans);
+            font-weight: 800;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .auth-tab-btn.active {
+            background-color: var(--text-ink);
+            color: var(--color-neon-green);
+            box-shadow: 2px 2px 0px var(--color-primary-pink);
+        }
+
+        .auth-user-banner {
+            background-color: rgba(42, 241, 81, 0.18);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            padding: 14px 18px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* ==========================================================================
+           PRODUCT RECOMMENDATION POP-UP MODAL & FULL PAGE VIEW
+           ========================================================================== */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(17, 17, 17, 0.78);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            animation: fadeIn 0.25s ease;
+        }
+
+        .modal-backdrop.open {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-card {
+            background: var(--surface-white);
+            border: 3px solid var(--border-ink);
+            border-radius: var(--radius-lg);
+            box-shadow: 8px 8px 0px var(--color-neon-green);
+            max-width: 600px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            animation: popScale 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes popScale {
+            from { opacity: 0; transform: scale(0.92) translateY(16px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .modal-top-bar {
+            background: linear-gradient(135deg, var(--color-primary-pink), var(--color-deep-pink));
+            color: var(--surface-white);
+            padding: 18px 20px;
+            border-bottom: 2.5px solid var(--border-ink);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .btn-close-modal {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: var(--surface-white);
+            color: var(--text-ink);
+            border: 2px solid var(--border-ink);
+            font-weight: 900;
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-close-modal:hover {
+            background: var(--color-neon-green);
+        }
+
+        .modal-body-content {
+            padding: 22px 20px;
+        }
+
+        /* ==========================================================================
+           5. BUTTONS & INTERACTIVE STATES (HOVER, ACTIVE, DISABLED)
+           ========================================================================== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: var(--font-sans);
+            font-weight: 700;
+            font-size: 1rem;
+            padding: 14px 28px;
+            border-radius: var(--radius-pill);
+            border: 2px solid var(--border-ink);
+            cursor: pointer;
+            transition: all 0.18s cubic-bezier(0.25, 0.8, 0.25, 1);
+            user-select: none;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background-color: var(--color-neon-green);
+            color: var(--text-ink);
+            box-shadow: var(--shadow-brutal);
+            width: 100%;
+        }
+
+        /* Hover State */
+        .btn-primary:hover:not(:disabled) {
+            background-color: var(--color-bright-green);
+            transform: translate(-2px, -2px);
+            box-shadow: var(--shadow-brutal-hover);
+        }
+
+        .btn-primary:active:not(:disabled) {
+            transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px var(--border-ink);
+        }
+
+        .btn-secondary {
+            background-color: var(--surface-white);
+            color: var(--text-ink);
+            box-shadow: 2px 2px 0px var(--border-ink);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background-color: #F3F3F3;
+            transform: translate(-1px, -1px);
+            box-shadow: 4px 4px 0px var(--border-ink);
+        }
+
+        .btn-pink {
+            background-color: var(--color-primary-pink);
+            color: var(--surface-white);
+            box-shadow: var(--shadow-brutal);
+        }
+
+        .btn-pink:hover:not(:disabled) {
+            background-color: var(--color-neon-magenta);
+            transform: translate(-2px, -2px);
+            box-shadow: var(--shadow-brutal-hover);
+        }
+
+        /* Disabled State */
+        .btn:disabled {
+            background-color: var(--disabled-bg);
+            color: var(--disabled-text);
+            border-color: #CCCCCC;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ==========================================================================
+           6. QUIZ MECHANICS (SLIDER, CHOICES, CHECKBOXES)
+           ========================================================================== */
+        .progress-wrapper {
+            margin-bottom: 24px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .category-pill {
+            background-color: var(--text-ink);
+            color: var(--color-neon-green);
+            padding: 3px 10px;
+            border-radius: var(--radius-pill);
+            font-size: 0.75rem;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 10px;
+            background-color: #E5E5E5;
+            border: 1.5px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--color-primary-pink), var(--color-neon-magenta));
+            width: 0%;
+            transition: width 0.35s ease;
+        }
+
+        .question-title {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            line-height: 1.35;
+            margin-bottom: 12px;
+            color: var(--text-ink);
+        }
+
+        @media (min-width: 640px) {
+            .question-title {
+                font-size: 1.85rem;
+            }
+        }
+
+        .question-context {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            background-color: var(--bg-editorial);
+            padding: 12px 16px;
+            border-left: 4px solid var(--color-primary-pink);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            margin-bottom: 24px;
+        }
+
+        /* --- Mechanic A: Click Choices (Button Selection) --- */
+        .options-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .option-btn {
+            width: 100%;
+            text-align: left;
+            padding: 16px 20px;
+            background-color: var(--surface-white);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            font-family: var(--font-sans);
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--text-ink);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .option-btn:hover {
+            border-color: var(--color-primary-pink);
+            background-color: rgba(239, 27, 216, 0.04);
+            transform: translateX(4px);
+        }
+
+        .option-btn.selected {
+            background-color: var(--color-neon-green);
+            border-color: var(--border-ink);
+            font-weight: 700;
+            box-shadow: 3px 3px 0px var(--border-ink);
+            transform: translate(-1px, -1px);
+        }
+
+        .option-indicator {
+            min-width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid var(--border-ink);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 800;
+            background-color: var(--surface-white);
+            margin-top: 1px;
+        }
+
+        .option-btn.selected .option-indicator {
+            background-color: var(--text-ink);
+            color: var(--color-neon-green);
+        }
+
+        /* --- Mechanic B: 1-7 Scale Slider --- */
+        .slider-container {
+            padding: 24px 16px;
+            background-color: var(--bg-editorial);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            text-align: center;
+        }
+
+        .slider-value-display {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: var(--color-primary-pink);
+            color: var(--surface-white);
+            font-family: var(--font-display);
+            font-size: 1.75rem;
+            border: 2px solid var(--border-ink);
+            box-shadow: 3px 3px 0px var(--border-ink);
+            margin-bottom: 12px;
+            transition: transform 0.15s ease, background-color 0.2s ease;
+        }
+
+        .slider-level-desc {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--color-deep-pink);
+            min-height: 24px;
+            margin-bottom: 20px;
+        }
+
+        input[type="range"].biao-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 12px;
+            background: var(--surface-white);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="range"].biao-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--color-neon-green);
+            border: 2.5px solid var(--border-ink);
+            cursor: pointer;
+            box-shadow: 2px 2px 0px var(--border-ink);
+            transition: transform 0.15s ease;
+        }
+
+        input[type="range"].biao-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+            background: var(--color-bright-green);
+        }
+
+        input[type="range"].biao-slider::-moz-range-thumb {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--color-neon-green);
+            border: 2.5px solid var(--border-ink);
+            cursor: pointer;
+            box-shadow: 2px 2px 0px var(--border-ink);
+        }
+
+        .slider-ticks {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 6px 0;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-ink);
+        }
+
+        /* --- Mechanic C: Multi-select Checkboxes --- */
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        @media (min-width: 540px) {
+            .checkbox-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .checkbox-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            background-color: var(--surface-white);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .checkbox-card:hover {
+            border-color: var(--color-neon-magenta);
+            background-color: rgba(252, 2, 199, 0.04);
+        }
+
+        .checkbox-card.checked {
+            background-color: rgba(42, 241, 81, 0.25);
+            border-color: var(--border-ink);
+            box-shadow: 3px 3px 0px var(--color-deep-pink);
+        }
+
+        .custom-checkbox {
+            min-width: 22px;
+            height: 22px;
+            border: 2px solid var(--border-ink);
+            border-radius: 6px;
+            background-color: var(--surface-white);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 0.85rem;
+            color: var(--text-ink);
+        }
+
+        .checkbox-card.checked .custom-checkbox {
+            background-color: var(--color-primary-pink);
+            color: var(--surface-white);
+        }
+
+        /* ==========================================================================
+           7. EMPTY STATE & ERROR STATE BANNERS
+           ========================================================================== */
+        .state-banner {
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Empty State */
+        .state-banner.empty-state {
+            display: flex;
+            background-color: #F4F4F5;
+            border: 1.5px dashed #888888;
+            color: #555555;
+        }
+
+        /* Error State */
+        .state-banner.error-state {
+            display: flex;
+            background-color: #FFF0F3;
+            border: 2px solid var(--error-red);
+            color: var(--error-red);
+            animation: shake 0.35s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-6px); }
+            75% { transform: translateX(6px); }
+        }
+
+        /* Quiz Navigation Footer */
+        .quiz-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-top: 28px;
+            padding-top: 20px;
+            border-top: 1.5px solid #E5E5E5;
+        }
+
+        /* ==========================================================================
+           8. RESULT VIEW (EDITORIAL MAGAZINE COVER STYLE)
+           ========================================================================== */
+        .result-card {
+            background-color: var(--surface-white);
+            border: 2.5px solid var(--border-ink);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            box-shadow: 6px 6px 0px var(--border-ink);
+        }
+
+        .result-header-banner {
+            background: linear-gradient(135deg, var(--color-primary-pink), var(--color-deep-pink));
+            color: var(--surface-white);
+            padding: 28px 24px;
+            border-bottom: 2.5px solid var(--border-ink);
+            text-align: center;
+            position: relative;
+        }
+
+        .result-code {
+            display: inline-block;
+            background-color: var(--color-neon-green);
+            color: var(--text-ink);
+            font-family: var(--font-sans);
+            font-weight: 900;
+            font-size: 1.1rem;
+            letter-spacing: 0.15em;
+            padding: 6px 18px;
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+            box-shadow: 3px 3px 0px var(--border-ink);
+            margin-bottom: 12px;
+        }
+
+        .result-persona-title {
+            font-family: var(--font-display);
+            font-size: 2rem;
+            line-height: 1.2;
+            margin-bottom: 8px;
+            text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.25);
+        }
+
+        .result-user-label {
+            font-size: 0.9rem;
+            opacity: 0.95;
+            font-weight: 500;
+        }
+
+        .result-body {
+            padding: 28px 24px;
+        }
+
+        .score-meter-box {
+            background-color: var(--bg-editorial);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 10px;
+        }
+
+        .score-number {
+            font-family: var(--font-display);
+            font-size: 2.25rem;
+            color: var(--color-deep-pink);
+        }
+
+        .score-max {
+            font-size: 1rem;
+            color: var(--text-muted);
+            font-weight: 700;
+        }
+
+        .meter-bar-bg {
+            width: 100%;
+            height: 16px;
+            background-color: var(--surface-white);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-pill);
+            overflow: hidden;
+        }
+
+        .meter-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--color-neon-green), var(--color-bright-green), var(--color-neon-magenta));
+            width: 0%;
+            transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        .result-quote {
+            font-family: var(--font-display);
+            font-size: 1.15rem;
+            color: var(--text-ink);
+            background-color: rgba(42, 241, 81, 0.2);
+            border: 1.5px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .result-desc {
+            font-size: 1rem;
+            color: var(--text-ink);
+            margin-bottom: 24px;
+            line-height: 1.7;
+        }
+
+        .traits-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .trait-box {
+            border: 1.5px solid var(--border-ink);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            background-color: var(--bg-editorial);
+        }
+
+        .trait-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .trait-val {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--color-deep-pink);
+        }
+
+        /* ==========================================================================
+           PRODUCT RECOMMENDATION & TRANSACTION TRACKING STYLES
+           ========================================================================== */
+        .product-rec-section {
+            margin-top: 24px;
+            margin-bottom: 24px;
+            padding: 20px;
+            background-color: var(--bg-editorial);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            box-shadow: 4px 4px 0px var(--color-primary-pink);
+        }
+
+        .product-rec-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            border-bottom: 1.5px dashed #CCCCCC;
+            padding-bottom: 10px;
+        }
+
+        .product-rec-badge {
+            background-color: var(--color-neon-green);
+            color: var(--text-ink);
+            font-size: 0.72rem;
+            font-weight: 800;
+            padding: 3px 10px;
+            border-radius: var(--radius-pill);
+            border: 1.5px solid var(--border-ink);
+        }
+
+        .product-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .product-item-card {
+            background-color: var(--surface-white);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-sm);
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: transform 0.15s ease;
+        }
+
+        @media (min-width: 540px) {
+            .product-item-card {
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+            }
+        }
+
+        .product-visual-art {
+            width: 100%;
+            height: 88px;
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-sm);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            text-align: center;
+            padding: 6px;
+            flex-shrink: 0;
+            box-shadow: 2px 2px 0px var(--border-ink);
+        }
+
+        @media (min-width: 540px) {
+            .product-visual-art {
+                width: 96px;
+                height: 96px;
+            }
+        }
+
+        .product-art-caption {
+            font-family: var(--font-sans);
+            font-size: 0.62rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 4px;
+            background: rgba(255,255,255,0.9);
+            color: var(--text-ink);
+            padding: 1px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border-ink);
+        }
+
+        .product-click-counter {
+            display: inline-block;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-left: 8px;
+        }
+
+        @media (min-width: 540px) {
+            .product-item-card {
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+            }
+        }
+
+        .product-item-card:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 3px 3px 0px var(--border-ink);
+        }
+
+        .product-info h4 {
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--text-ink);
+            margin-bottom: 4px;
+        }
+
+        .product-info p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .product-price-tag {
+            display: inline-block;
+            font-size: 0.8rem;
+            font-weight: 800;
+            color: var(--color-deep-pink);
+            margin-top: 4px;
+        }
+
+        .btn-order-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background-color: var(--color-neon-green);
+            color: var(--text-ink);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 800;
+            padding: 10px 16px;
+            border-radius: var(--radius-pill);
+            border: 2px solid var(--border-ink);
+            box-shadow: 2px 2px 0px var(--border-ink);
+            white-space: nowrap;
+            transition: all 0.15s ease;
+        }
+
+        .btn-order-link:hover {
+            background-color: var(--color-bright-green);
+            transform: translate(-1px, -1px);
+            box-shadow: 3px 3px 0px var(--border-ink);
+        }
+
+        .btn-order-link.clicked {
+            background-color: var(--text-ink);
+            color: var(--color-neon-green);
+        }
+
+        .feedback-interest-box {
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1.5px solid #E5E5E5;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .feedback-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-interest-toggle {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            border: 1.5px solid var(--border-ink);
+            border-radius: var(--radius-sm);
+            background-color: var(--surface-white);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-interest-toggle.active-yes {
+            background-color: var(--color-neon-green);
+            box-shadow: 2px 2px 0px var(--border-ink);
+        }
+
+        .btn-interest-toggle.active-no {
+            background-color: #E5E5E5;
+            color: var(--text-muted);
+        }
+
+        /* ==========================================================================
+           LEADERBOARD SECTION STYLES
+           ========================================================================== */
+        .leaderboard-section {
+            margin-top: 24px;
+            margin-bottom: 24px;
+            padding: 20px;
+            background-color: var(--surface-white);
+            border: 2px solid var(--border-ink);
+            border-radius: var(--radius-md);
+            box-shadow: 4px 4px 0px var(--color-neon-green);
+        }
+
+        .leaderboard-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            border-bottom: 1.5px solid var(--border-ink);
+            padding-bottom: 10px;
+        }
+
+        .leaderboard-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .leaderboard-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background-color: var(--bg-editorial);
+            border: 1.5px solid var(--border-ink);
+            border-radius: var(--radius-sm);
+            font-size: 0.88rem;
+        }
+
+        .leaderboard-row.top-rank {
+            background-color: rgba(42, 241, 81, 0.18);
+            font-weight: 700;
+        }
+
+        .lb-rank-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background-color: var(--text-ink);
+            color: var(--color-neon-green);
+            font-size: 0.75rem;
+            font-weight: 800;
+            margin-right: 10px;
+        }
+
+        .result-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        @media (min-width: 540px) {
+            .result-actions {
+                flex-direction: row;
+            }
+        }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background-color: var(--text-ink);
+            color: var(--color-neon-green);
+            padding: 12px 24px;
+            border-radius: var(--radius-pill);
+            font-size: 0.9rem;
+            font-weight: 700;
+            border: 2px solid var(--color-neon-green);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Editorial Header -->
+    <header class="editorial-header">
+        <div class="brand-logo" onclick="resetToHome()" title="กลับหน้าแรก">
+            <span>MเบียวTI</span>
+            <span class="brand-badge">ฉบับคนมั่นใจ</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div id="header-user-pill" class="header-user-pill">
+                <span id="header-user-email">👤 ผู้ตื่นรู้</span>
+                <button type="button" class="btn-logout-mini" onclick="handleSignOut()">ออก</button>
+            </div>
+            <div class="header-meta">VOL. 01 — PSYCHOLOGICAL CHUNIBYO INDEX</div>
+        </div>
+    </header>
+
+    <!-- Main App Container -->
+    <main class="app-container">
+
+        <!-- ======================================================================
+             VIEW 0: AUTHENTICATION (SIGN IN / SIGN UP BEFORE QUIZ)
+             ====================================================================== -->
+        <section id="view-auth" class="view-section active">
+            <div class="editorial-card">
+                <span class="issue-tag">STEP 01 — IDENTITY VERIFICATION</span>
+                <h1 class="hero-title">ลงทะเบียนจิตวิญญาณ<span class="highlight-pink">ผู้ถูกเลือก</span></h1>
+                <p class="hero-subtitle">
+                    เข้าสู่ระบบหรือสร้างบัญชี <strong>MเบียวTI</strong> เพื่อบันทึก <strong>User ID</strong> ประจำตัวของคุณก่อนเข้าสู่บททดสอบวัดระดับความเบียวและรับคำแนะนำไอเทมเสริมพลังเฉพาะบุคคล
+                </p>
+
+                <!-- Auth Tabs -->
+                <div class="auth-tabs">
+                    <button type="button" id="tab-signin" class="auth-tab-btn active" onclick="switchAuthMode('signin')">
+                        เข้าสู่ระบบ (Sign In)
+                    </button>
+                    <button type="button" id="tab-signup" class="auth-tab-btn" onclick="switchAuthMode('signup')">
+                        สมัครสมาชิกใหม่ (Sign Up)
+                    </button>
+                </div>
+
+                <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+                    <div id="signup-codename-group" class="input-group" style="display: none;">
+                        <label for="auth-codename" class="input-label">ฉายา / นามแฝงจอมมารประจำตัว</label>
+                        <input 
+                            type="text" 
+                            id="auth-codename" 
+                            class="editorial-input" 
+                            placeholder="เช่น จักรพรรดิเนตรมาร, ผู้บัญชาการเงา..."
+                            maxlength="30"
+                        >
+                    </div>
+
+                    <div class="input-group">
+                        <label for="auth-email" class="input-label">อีเมล (Email)</label>
+                        <input 
+                            type="email" 
+                            id="auth-email" 
+                            class="editorial-input" 
+                            placeholder="you@shadow-realm.com"
+                            required
+                        >
+                    </div>
+
+                    <div class="input-group">
+                        <label for="auth-password" class="input-label">รหัสผ่าน (Password อย่างน้อย 6 ตัวอักษร)</label>
+                        <input 
+                            type="password" 
+                            id="auth-password" 
+                            class="editorial-input" 
+                            placeholder="••••••••"
+                            minlength="6"
+                            required
+                        >
+                    </div>
+
+                    <div id="auth-error" class="state-banner" role="alert" style="margin-bottom: 16px;">
+                        <span>⚠️</span>
+                        <span id="auth-error-text">เกิดข้อผิดพลาดในการยืนยันตัวตน</span>
+                    </div>
+
+                    <button type="submit" id="btn-auth-submit" class="btn btn-primary">
+                        <span id="btn-auth-label">เข้าสู่ระบบเพื่อเริ่มวัดระดับ</span>
+                        <span>→</span>
+                    </button>
+                </form>
+
+                <div style="margin-top: 16px; text-align: center;">
+                    <button type="button" class="btn btn-secondary" style="width: 100%; font-size: 0.88rem;" onclick="continueAsGuestWithRecord()">
+                        ⚡ เข้าใช้งานด่วนแบบ Guest (สร้างรหัสผู้เล่นอัตโนมัติ)
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ======================================================================
+             VIEW 1: INTRO / START SCREEN (AFTER SIGN IN)
+             ====================================================================== -->
+        <section id="view-intro" class="view-section">
+            <div class="editorial-card">
+                <div class="auth-user-banner">
+                    <div>
+                        <div style="font-size: 0.72rem; font-weight: 800; color: var(--color-deep-pink);">AUTHENTICATED USER ID</div>
+                        <div id="logged-in-userid-display" style="font-size: 0.85rem; font-weight: 700; word-break: break-all;">กำลังตรวจสอบ...</div>
+                    </div>
+                    <button type="button" class="btn-logout-mini" style="padding: 6px 12px;" onclick="handleSignOut()">ออกจากระบบ</button>
+                </div>
+
+                <span class="issue-tag">แบบทดสอบบุคลิกภาพเชิงลึก (1-7 SCALE)</span>
+                <h1 class="hero-title">วัดระดับความ<span class="highlight-pink">เบียว</span>ในตัวคุณ</h1>
+                <p class="hero-subtitle">
+                    เพราะความมั่นใจคือพลังพิเศษที่คนธรรมดาไม่เข้าใจ! มาร่วมสำรวจตัวตนผ่านสถานการณ์ในชีวิตประจำวัน บทสนทนา อาหารจานโปรด และซีรีส์ในดวงใจ เพื่อค้นหา <strong>รหัสความเบียว (MเบียวTI)</strong> ที่แท้จริงของคุณ
+                </p>
+
+                <div class="input-group">
+                    <label for="user-codename" class="input-label">ยืนยันนามแฝง / ฉายาประจำตัวที่จะแสดงในทำเนียบ (บังคับกรอก)</label>
+                    <input 
+                        type="text" 
+                        id="user-codename" 
+                        class="editorial-input" 
+                        placeholder="เช่น จักรพรรดิเนตรมาร, ผู้ถูกเลือกแห่งรัตติกาล, น้องบอส..."
+                        maxlength="30"
+                        autocomplete="off"
+                    >
+                    <!-- Error State for Empty Input -->
+                    <div id="intro-error" class="state-banner" role="alert">
+                        <span>⚠️</span>
+                        <span id="intro-error-text">กรุณาระบุนามแฝงก่อนเริ่มภารกิจ</span>
+                    </div>
+                </div>
+
+                <button id="btn-start" class="btn btn-primary" onclick="startQuiz()">
+                    <span>เริ่มการประเมินตัวตน</span>
+                    <span>→</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ======================================================================
+             VIEW 2: INTERACTIVE QUIZ SCREEN
+             ====================================================================== -->
+        <section id="view-quiz" class="view-section">
+            <div class="editorial-card">
+                <!-- Progress Bar -->
+                <div class="progress-wrapper">
+                    <div class="progress-header">
+                        <span id="question-counter">คำถามที่ 1 / 7</span>
+                        <span id="question-category" class="category-pill">สถานการณ์ชีวิตประจำวัน</span>
+                    </div>
+                    <div class="progress-track">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                </div>
+
+                <!-- Question Prompt -->
+                <h2 id="question-title" class="question-title">กำลังโหลดคำถาม...</h2>
+                <p id="question-context" class="question-context">บริบทสถานการณ์...</p>
+
+                <!-- Dynamic Interactive Area (Choices / Slider / Checkboxes) -->
+                <div id="interactive-area"></div>
+
+                <!-- Empty State & Error State Indicator -->
+                <div id="quiz-state-banner" class="state-banner empty-state">
+                    <span id="state-icon">💡</span>
+                    <span id="state-message">ยังไม่ได้เลือกคำตอบ — กรุณาเลือกหรือปรับระดับความมั่นใจของคุณ</span>
+                </div>
+
+                <!-- Navigation Buttons -->
+                <div class="quiz-nav">
+                    <button id="btn-prev" class="btn btn-secondary" onclick="prevQuestion()">
+                        ← ย้อนกลับ
+                    </button>
+                    <button id="btn-next" class="btn btn-primary" style="width: auto; flex: 1;" onclick="nextQuestion()" disabled>
+                        ข้อถัดไป →
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ======================================================================
+             VIEW 3: RESULT SCREEN
+             ====================================================================== -->
+        <section id="view-result" class="view-section">
+            <div class="result-card">
+                <div class="result-header-banner">
+                    <div id="res-code" class="result-code">GOD-X</div>
+                    <h2 id="res-title" class="result-persona-title">จอมมารผู้ตื่นรู้</h2>
+                    <p id="res-user" class="result-user-label">ผลการวิเคราะห์ของ: ผู้ถูกเลือก</p>
+                </div>
+
+                <div class="result-body">
+                    <!-- Score Meter -->
+                    <div class="score-meter-box">
+                        <div class="score-row">
+                            <span style="font-weight: 800; font-size: 0.95rem;">ดัชนีความเบียวรวม (BIAO SCORE)</span>
+                            <div>
+                                <span id="res-score" class="score-number">0</span>
+                                <span class="score-max">/ 56 คะแนน</span>
+                            </div>
+                        </div>
+                        <div class="meter-bar-bg">
+                            <div id="res-meter-fill" class="meter-bar-fill"></div>
+                        </div>
+                    </div>
+
+                    <!-- Signature Quote -->
+                    <div id="res-quote" class="result-quote">
+                        "คำคมประจำตัว..."
+                    </div>
+
+                    <!-- Analysis Description -->
+                    <p id="res-desc" class="result-desc">
+                        คำอธิบายผลลัพธ์...
+                    </p>
+
+                    <!-- Editorial Stats Grid -->
+                    <div class="traits-grid">
+                        <div class="trait-box">
+                            <div class="trait-label">ระดับออร่าความมั่นใจ</div>
+                            <div id="res-aura" class="trait-val">999%</div>
+                        </div>
+                        <div class="trait-box">
+                            <div class="trait-label">อาวุธคู่กายที่แนะนำ</div>
+                            <div id="res-item" class="trait-val">ผ้าพันคอสีดำ</div>
+                        </div>
+                    </div>
+
+                    <!-- Product Recommendation Section (Dynamic based on Q8 & Persona) -->
+                    <div class="product-rec-section">
+                        <div class="product-rec-header">
+                            <span style="font-weight: 800; font-size: 0.95rem;">🛍️ ไอเทมเสริมพลังที่คัดมาเพื่อคุณ</span>
+                            <div style="display: flex; gap: 6px; align-items: center;">
+                                <button type="button" class="btn-logout-mini" style="background: var(--text-ink); color: var(--color-neon-green); padding: 4px 10px;" onclick="openProductPopup(true)">
+                                    ✨ เปิดหน้าต่าง Pop-up
+                                </button>
+                                <button type="button" class="btn-logout-mini" style="padding: 4px 10px;" onclick="openProductPage()">
+                                    📄 ดูหน้าสินค้าเต็ม
+                                </button>
+                            </div>
+                        </div>
+                        <div id="recommended-products-list" class="product-list">
+                            <!-- Populated by JS -->
+                        </div>
+
+                        <!-- Transaction Interest Tracking -->
+                        <div class="feedback-interest-box">
+                            <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-ink);">
+                                คุณสนใจผลิตภัณฑ์ที่ระบบแนะนำให้หรือไม่? (บันทึก Transaction ผูกกับ User ID)
+                            </span>
+                            <div class="feedback-buttons">
+                                <button type="button" id="btn-interest-yes" class="btn-interest-toggle" onclick="recordProductInterest(true)">
+                                    🔥 สนใจมาก! เล็งไว้แล้ว
+                                </button>
+                                <button type="button" id="btn-interest-no" class="btn-interest-toggle" onclick="recordProductInterest(false)">
+                                    🙅 ยังไม่สนใจตอนนี้
+                                </button>
+                            </div>
+                            <div id="transaction-log-status" style="font-size: 0.78rem; color: var(--color-deep-pink); font-weight: 600;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Leaderboard Section (Supabase Real-time Top Ranking) -->
+                    <div class="leaderboard-section">
+                        <div class="leaderboard-header">
+                            <span style="font-weight: 800; font-size: 0.95rem;">🏆 ทำเนียบจอมมารความเบียว (LEADERBOARD)</span>
+                            <span id="db-sync-badge" style="font-size: 0.72rem; font-weight: 700; color: var(--color-deep-pink);">กำลังซิงค์ข้อมูล...</span>
+                        </div>
+                        <div id="leaderboard-list" class="leaderboard-list">
+                            <div style="font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 12px;">กำลังโหลดอันดับจาก Supabase...</div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="result-actions">
+                        <button class="btn btn-pink" style="flex: 1;" onclick="copyResultText()">
+                            📋 คัดลอกผลลัพธ์อวดเพื่อน
+                        </button>
+                        <button class="btn btn-secondary" style="flex: 1;" onclick="restartQuiz()">
+                            ↻ ทำแบบทดสอบอีกครั้ง
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ======================================================================
+             VIEW 4: DEDICATED PRODUCT RECOMMENDATION PAGE (FULL PAGE SHOWCASE)
+             ====================================================================== -->
+        <section id="view-products-page" class="view-section">
+            <div class="editorial-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <span class="issue-tag" style="margin-bottom: 0;">SECRET ARMORY — คลังศาสตราวุธประจำตัว</span>
+                    <button type="button" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="switchView('view-result')">
+                        ← กลับหน้าผลลัพธ์
+                    </button>
+                </div>
+
+                <h2 class="hero-title" style="font-size: 1.85rem;">คลังผลิตภัณฑ์สำหรับ<span class="highlight-pink" id="page-persona-badge">ผู้ตื่นรู้</span></h2>
+                <p class="hero-subtitle" style="margin-bottom: 20px;">
+                    ไอเทม สื่อบันเทิง และคอลเลกชันพิเศษที่วิเคราะห์จากคะแนนความเบียวและรสนิยมของคุณ (ทุกการกดดูสินค้าจะถูกบันทึกเป็น Transaction ในบัญชีของคุณ)
+                </p>
+
+                <div id="fullpage-products-list" class="product-list" style="margin-bottom: 24px;">
+                    <!-- Populated by JS -->
+                </div>
+
+                <div class="feedback-interest-box" style="background: var(--bg-editorial); padding: 16px; border-radius: var(--radius-md); border: 2px solid var(--border-ink);">
+                    <span style="font-size: 0.9rem; font-weight: 800;">สรุปความสนใจในหน้าคลังผลิตภัณฑ์:</span>
+                    <div class="feedback-buttons">
+                        <button type="button" class="btn-interest-toggle" onclick="recordProductInterest(true)">
+                            🔥 สนใจสั่งซื้อ / เก็บเข้าลิสต์
+                        </button>
+                        <button type="button" class="btn-interest-toggle" onclick="recordProductInterest(false)">
+                            🙅 ขอดูเฉยๆ ก่อน
+                        </button>
+                    </div>
+                    <div id="fullpage-transaction-status" style="font-size: 0.8rem; color: var(--color-deep-pink); font-weight: 700;"></div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ======================================================================
+         POP-UP MODAL: PRODUCT RECOMMENDATION SHOWCASE
+         ====================================================================== -->
+    <div id="product-popup-modal" class="modal-backdrop" role="dialog" aria-modal="true">
+        <div class="modal-card">
+            <div class="modal-top-bar">
+                <div>
+                    <div style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em;">SPECIAL DROP FOR YOUR AURA</div>
+                    <div style="font-family: var(--font-display); font-size: 1.25rem;">🎁 ไอเทมลับที่คู่ควรกับระดับของคุณ!</div>
+                </div>
+                <button type="button" class="btn-close-modal" onclick="closeProductPopup()" title="ปิดหน้าต่าง">✕</button>
+            </div>
+            <div class="modal-body-content">
+                <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 14px;">
+                    จากผลการประเมิน <strong id="popup-persona-name" style="color: var(--text-ink);">MเบียวTI</strong> ระบบได้ปลดล็อกรายการผลิตภัณฑ์และสื่อที่ตรงกับจิตวิญญาณของคุณ:
+                </p>
+
+                <div id="popup-products-list" class="product-list" style="margin-bottom: 18px;">
+                    <!-- Populated by JS -->
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1.5px solid #E5E5E5; padding-top: 14px;">
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-primary" style="padding: 10px 16px; font-size: 0.88rem;" onclick="recordProductInterest(true); closeProductPopup();">
+                            🔥 สนใจไอเทมเหล่านี้!
+                        </button>
+                        <button type="button" class="btn btn-secondary" style="padding: 10px 16px; font-size: 0.88rem;" onclick="closeProductPopup(); openProductPage();">
+                            📄 เปิดหน้าสินค้าเต็ม
+                        </button>
+                    </div>
+                    <button type="button" style="background: none; border: none; color: var(--text-muted); font-size: 0.8rem; font-weight: 700; cursor: pointer; text-decoration: underline;" onclick="recordProductInterest(false); closeProductPopup();">
+                        ยังไม่สนใจในตอนนี้ (ปิดหน้าต่าง)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">คัดลอกผลลัพธ์เรียบร้อยแล้ว!</div>
+
+    <script>
+        /* ==========================================================================
+           0. SUPABASE INITIALIZATION
+           ========================================================================== */
+        const SUPABASE_URL = 'https://lswmdqudzjcjlodctbfg.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_2No4gcfKdJ_hfRX5H1EgHw_lpSvPK39';
+        const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+        /* ==========================================================================
+           1. DATA & QUESTION BANK (8 QUESTIONS, MAX 7 POINTS EACH = 56 POINTS)
+           ครอบคลุม: สถานการณ์ชีวิตประจำวัน, บทสนทนา, กิจกรรม, อาหาร, ซีรีส์/ภาพยนตร์, ไอเทม
+           กลไกการตอบ: คลิกปุ่ม (choice), เลื่อนแถบ 1-7 (slider), กดติ๊กถูก (checkbox)
+           ========================================================================== */
+        const quizData = [
+            {
+                id: 1,
+                category: "สถานการณ์ในชีวิตประจำวัน",
+                type: "choice",
+                title: "ระหว่างเดินฝ่าลมแรงในวันที่ฝนกำลังจะตก จู่ๆ ลมพัดเสื้อคลุมหรือชายเสื้อของคุณปลิวไสว คุณจะทำอย่างไร?",
+                context: "เหตุการณ์เกิดกลางสี่แยกที่มีผู้คนเดินสวนไปมา",
+                options: [
+                    { text: "รีบจับชายเสื้อให้เรียบร้อยแล้วเดินก้มหน้าหลบฝนตามปกติ", score: 1 },
+                    { text: "แอบยิ้มมุมปากเล็กน้อย รู้สึกว่าจังหวะนี้เท่ดีเหมือนกันนะ", score: 3 },
+                    { text: "ชะลอฝีเท้า ปล่อยให้ลมพัดผมปลิว พร้อมคิดในใจว่า 'พายุกำลังจะเริ่มแล้วสินะ'", score: 5 },
+                    { text: "ยกมือขวาขึ้นกุมขมับเบาๆ พึมพำว่า 'ผนึกกำลังคลายตัว... ต้องรีบกลับฐานทัพแล้ว'", score: 7 }
+                ]
+            },
+            {
+                id: 2,
+                category: "บทสนทนาในกลุ่มเพื่อน",
+                type: "slider",
+                title: "เมื่อเพื่อนถามความเห็นเรื่องยากๆ ที่ไม่มีใครตอบได้ คุณมั่นใจแค่ไหนว่าคำตอบของคุณคือ 'สัจธรรม'?",
+                context: "เลื่อนแถบระดับความมั่นใจตั้งแต่ 1 (ถ่อมตัวสุดๆ) ถึง 7 (ข้าคือผู้หยั่งรู้ทุกสรรพสิ่ง)",
+                minLabel: "1 — ไม่แน่ใจเลย",
+                maxLabel: "7 — ข้าคือผู้หยั่งรู้",
+                levelDescriptions: {
+                    1: "ระดับ 1: ขอฟังคนอื่นก่อนดีกว่า เรายังรู้ไม่พอ",
+                    2: "ระดับ 2: ออกความเห็นเบาๆ แบบมีเหตุผลรองรับ",
+                    3: "ระดับ 3: มั่นใจในข้อมูลของตัวเองพอสมควร",
+                    4: "ระดับ 4: พูดด้วยน้ำเสียงหนักแน่น ดึงดูดความสนใจทั้งโต๊ะ",
+                    5: "ระดับ 5: เริ่มใช้ศัพท์เฉพาะทางหรือคำเปรียบเปรยสุดล้ำลึก",
+                    6: "ระดับ 6: กอดอกหลับตาพูดประหนึ่งกุนซืออัจฉริยะวางแผนรบ",
+                    7: "ระดับ 7: 'หึ... พวกนายยังมองเห็นแค่เปลือกนอกของความจริงสินะ'"
+                }
+            },
+            {
+                id: 3,
+                category: "กิจกรรมยามว่างที่ชอบทำ",
+                type: "checkbox",
+                title: "ติ๊กเลือกกิจกรรมยามว่างที่คุณทำแล้วรู้สึก 'เข้าถึงจิตวิญญาณขั้นสุด'",
+                context: "เลือกได้มากกว่า 1 ข้อ (ระบบจะคำนวณคะแนนความเบียวตามความเข้มข้นของกิจกรรม)",
+                minSelect: 1,
+                options: [
+                    { text: "ฟังเพลงบรรเลง Epic / เพลงอนิเมะ แล้วจินตนาการฉากต่อสู้ในหัว", score: 2 },
+                    { text: "ซ้อมบทพูดเท่ๆ หรือโพสท่าหน้ากระจกตอนอยู่คนเดียว", score: 2 },
+                    { text: "นั่งจ้องมองท้องฟ้ายามค่ำคืน พร้อมครุ่นคิดถึงชะตากรรมของโลก", score: 2 },
+                    { text: "จัดระเบียบห้องหรืออ่านหนังสือเงียบๆ จิบชาธรรมดา", score: 1 }
+                ]
+            },
+            {
+                id: 4,
+                category: "อาหารและเครื่องดื่มที่ชอบทาน",
+                type: "choice",
+                title: "เวลาเข้าร้านคาเฟ่หรือร้านอาหาร เมนูไหนที่ดึงดูดจิตวิญญาณของคุณมากที่สุด?",
+                context: "รสชาติไม่ใช่เรื่องใหญ่ แต่ 'คอนเซปต์' และ 'ชื่อเรียก' ต้องมาก่อน",
+                options: [
+                    { text: "น้ำเปล่าหรือชาเขียวไม่หวาน เน้นเรียบง่ายดีต่อสุขภาพ", score: 1 },
+                    { text: "อเมริกาโน่เย็นไม่ใส่ไซรัป จิบนิ่งๆ ให้ดูสุขุมนุ่มลึก", score: 3 },
+                    { text: "เครื่องดื่มสีเข้มหรือสีแดงเบอร์รี ที่ดูเหมือน 'น้ำอมฤตแห่งรัตติกาล'", score: 5 },
+                    { text: "เมนูซิกเนเจอร์ที่มีควันน้ำแข็งแห้งลอยฟุ้ง พร้อมตั้งชื่อในใจว่า 'ยาฟื้นพลังวิญญาณ'", score: 7 }
+                ]
+            },
+            {
+                id: 5,
+                category: "ซีรีส์ ภาพยนตร์ และดนตรีที่สนใจ",
+                type: "choice",
+                title: "แนวหนัง ซีรีส์ หรือเพลงแบบไหน ที่ดูจบ/ฟังจบแล้วคุณมักจะ 'ติดคาแรคเตอร์ตัวเอก' ไปอีก 3 วัน?",
+                context: "เลือกแนวสื่อที่ปลุกไฟในตัวคุณได้รุนแรงที่สุด",
+                options: [
+                    { text: "สารคดี ซิตคอมเบาสมอง หรือเพลงป๊อปฟังสบายๆ ทั่วไป", score: 1 },
+                    { text: "หนังแนวสืบสวนสอบสวน วางแผนหักเหลี่ยมเฉือนคมระดับอัจฉริยะ", score: 3 },
+                    { text: "อนิเมะแอคชั่นพลังเหนือธรรมชาติ หรือซีรีส์แฟนตาซีที่มีคำสาปและพลังแฝง", score: 5 },
+                    { text: "หนังไซไฟกอบกู้จักรวาล + เพลงซาวด์แทร็กออร์เคสตร้าสุดอลังการที่เปิดคลอตอนเดิน", score: 7 }
+                ]
+            },
+            {
+                id: 6,
+                category: "สัญชาตญาณยามคับขัน",
+                type: "slider",
+                title: "หากเกิดไฟดับทั้งตึกกะทันหัน คุณเชื่อมั่นแค่ไหนว่าคุณคือคนเดียวที่ 'มองเห็นในความมืดและควบคุมสถานการณ์ได้'?",
+                context: "เลื่อนแถบระดับสัญชาตญาณตัวเอกตั้งแต่ 1 ถึง 7",
+                minLabel: "1 — รีบเปิดไฟฉายมือถือ",
+                maxLabel: "7 — ความมืดคือบ้านของข้า",
+                levelDescriptions: {
+                    1: "ระดับ 1: ตกใจนิดหน่อย รีบหาไฟฉายทันที",
+                    2: "ระดับ 2: ตั้งสติและเดินตามทางออกฉุกเฉินอย่างใจเย็น",
+                    3: "ระดับ 3: คอยบอกเพื่อนรอบข้างว่าไม่ต้องกลัว เดี๋ยวไฟก็มา",
+                    4: "ระดับ 4: ยืนนิ่งกอดอก รอให้สายตาปรับเข้ากับความมืดอย่างเยือกเย็น",
+                    5: "ระดับ 5: เริ่มวิเคราะห์หาสาเหตุของระบบไฟฟ้าประหนึ่งสายลับ",
+                    6: "ระดับ 6: แสยะยิ้มในเงามืด รู้สึกว่านี่คือเวทีของเราแล้ว",
+                    7: "ระดับ 7: 'จงอย่าหวาดกลัวความมืด... เพราะข้าคือผู้บัญชาการแห่งรัตติกาล'"
+                }
+            },
+            {
+                id: 7,
+                category: "ความลับประจำตัวที่ซ่อนไว้",
+                type: "checkbox",
+                title: "ติ๊กเลือกพฤติกรรมลับๆ ที่คุณเคยทำ (และภูมิใจกับมันลึกๆ)",
+                context: "เลือกได้หลายข้อ ยิ่งติ๊กเยอะ ยิ่งพิสูจน์ความแกร่งของจิตวิญญาณ!",
+                minSelect: 1,
+                options: [
+                    { text: "ตั้งรหัสผ่านหรือชื่อ Wi-Fi เป็นชื่อท่าไม้ตายหรือศัพท์เทพปกรณัม", score: 2 },
+                    { text: "แอบคิดว่าตัวเองมีพลังพิเศษบางอย่างที่ยังไม่ถึงเวลาตื่นรู้", score: 3 },
+                    { text: "เคยตั้งชื่อเล่นลับๆ ให้ตัวเอง หรือแบ่งบุคลิกออกเป็นโหมดกลางวัน/กลางคืน", score: 2 },
+                    { text: "ไม่เคยทำอะไรแบบนั้นเลย ใช้ชีวิตตรงไปตรงมาสุดๆ", score: 1 }
+                ]
+            },
+            {
+                id: 8,
+                category: "รสนิยมไอเทม สื่อบันเทิง และคอลเลกชัน",
+                type: "checkbox",
+                title: "เลือกหมวดผลิตภัณฑ์และสื่อที่ดึงดูด 'จิตวิญญาณผู้ถูกเลือก' ของคุณมากที่สุด",
+                context: "เลือกได้มากกว่า 1 ข้อ — ระบบจะคัดสรรไอเทมและสื่อที่ตรงจริตความเบียวของคุณให้หลังจบแบบทดสอบ",
+                minSelect: 1,
+                options: [
+                    { text: "เสื้อผ้า Streetwear & แบรนด์ Collab อนิเมะ/หนังดัง (ลิมิเต็ดอิดิชัน)", score: 2, tag: "anime_fashion" },
+                    { text: "เพลงซาวด์แทร็ก Epic / เพลงอนิเมะ & หูฟังตัดเสียงรบกวนเพื่อเข้าสู่โลกส่วนตัว", score: 2, tag: "music_audio" },
+                    { text: "ซีรีส์ไซไฟ-แฟนตาซีระดับตำนาน & บ็อกซ์เซ็ตหนังดังสะสม", score: 2, tag: "movie_series" },
+                    { text: "เครื่องดื่มปลุกพลังเนตรมาร (กาแฟสกัดเข้ม / มัทฉะ / เครื่องดื่มสูตรพิเศษ)", score: 2, tag: "beverage" },
+                    { text: "ของใช้ทั่วไปในชีวิตประจำวัน (ร่ม, กระบอกน้ำ, สมุด) ที่อัปเกรดให้ดูเท่ระดับจอมมาร", score: 1, tag: "everyday_biao" }
+                ]
+            }
+        ];
+
+        /* คลังผลิตภัณฑ์และสื่อแนะนำ (Creative Biao Copywriting + Visual Art Banner) */
+        const productCatalog = {
+            "anime_fashion": {
+                id: "PROD-COLLAB-01",
+                name: "เสื้อฮู้ด & แจ็คเก็ต Collab อนิเมะ/หนังดัง (Limited Shadow Edition)",
+                desc: "สวมใส่แล้วค่าพลังป้องกัน +500! ดีไซน์สตรีทคอลแลบฯ ลิขสิทธิ์แท้ ปลดปล่อยออร่าตัวเอกทุกครั้งที่เดินผ่านฝูงชน",
+                price: "฿1,490",
+                artEmoji: "🧥⚡",
+                artCaption: "COLLAB ARMOR",
+                artBg: "linear-gradient(135deg, #EF1BD8, #111111)",
+                url: "https://example.com/shop/anime-movie-collab-apparel?ref=mbiawti"
+            },
+            "music_audio": {
+                id: "PROD-MUSIC-02",
+                name: "เพลย์ลิสต์ซาวด์แทร็กกอบกู้โลก & หูฟัง ANC ตัดเสียงคนธรรมดา",
+                desc: "ตัดขาดจากเสียงรบกวนของโลกมนุษย์! เปิดโหมด BGM ประจำตัวให้ทุกก้าวที่เดินบนทางเท้ากลายเป็นฉากไคลแมกซ์",
+                price: "฿1,890",
+                artEmoji: "🎧🔥",
+                artCaption: "EPIC SOUNDTRACK",
+                artBg: "linear-gradient(135deg, #2AF151, #111111)",
+                url: "https://example.com/shop/epic-soundtrack-headphones?ref=mbiawti"
+            },
+            "movie_series": {
+                id: "PROD-SERIES-03",
+                name: "บ็อกซ์เซ็ตซีรีส์ไซไฟ-แฟนตาซีระดับตำนาน & บัตรดูหนังรอบปฐมทัศน์",
+                desc: "เจาะลึกคัมภีร์แห่งมิติคู่ขนาน! รวมซีรีส์หักเหลี่ยมเฉือนคมและภาพยนตร์พลังเหนือธรรมชาติที่ผู้ตื่นรู้ต้องดูให้ครบ",
+                price: "฿790",
+                artEmoji: "🎬👁️",
+                artCaption: "MULTIVERSE PASS",
+                artBg: "linear-gradient(135deg, #FC02C7, #D913A0)",
+                url: "https://example.com/shop/sci-fi-fantasy-series-pack?ref=mbiawti"
+            },
+            "beverage": {
+                id: "PROD-BEV-04",
+                name: "น้ำอมฤตแห่งรัตติกาล (Dark Abyss Cold Brew & Black Matcha)",
+                desc: "เครื่องดื่มสกัดเข้มข้นสีดำสนิท ดื่มเพียงอึกเดียวก็สัมผัสได้ถึงการไหลเวียนของมานาและสมาธิระดับกุนซืออัจฉริยะ",
+                price: "฿450",
+                artEmoji: "🧪🖤",
+                artCaption: "DARK ELIXIR",
+                artBg: "linear-gradient(135deg, #111111, #D913A0)",
+                url: "https://example.com/shop/dark-elixir-brew?ref=mbiawti"
+            },
+            "everyday_biao": {
+                id: "PROD-DAILY-05",
+                name: "ร่มดาบคาตานะกันพายุ & กระบอกน้ำเก็บความเย็น 'ผนึกเหมันต์นิรันดร์'",
+                desc: "ของใช้ธรรมดาที่คนทั่วไปมองข้าม แต่เมื่ออยู่ในมือคุณ มันคือศาสตราวุธคู่กายที่พร้อมกางออกต้านทานลมฝนอย่างสง่างาม!",
+                price: "฿590",
+                artEmoji: "⚔️☂️",
+                artCaption: "RELIC GEAR",
+                artBg: "linear-gradient(135deg, #2BF577, #EF1BD8)",
+                url: "https://example.com/shop/biao-everyday-relics?ref=mbiawti"
+            }
+        };
+
+        /* ==========================================================================
+           2. APPLICATION STATE & AUTHENTICATION (SIGN IN / SIGN UP)
+           ========================================================================== */
+        let authMode = 'signin'; // 'signin' | 'signup'
+        let authenticatedUser = null; // { id, email, codename, isGuest }
+        let userCodename = "";
+        let currentIndex = 0;
+        let userAnswers = new Array(quizData.length).fill(null);
+        let touchedQuestions = new Array(quizData.length).fill(false);
+
+        // ตรวจสอบ Session ที่ค้างอยู่เมื่อเปิดหน้าเว็บ
+        window.addEventListener('DOMContentLoaded', async () => {
+            if (supabaseClient) {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (session && session.user) {
+                    const savedCodename = session.user.user_metadata?.codename || session.user.email.split('@')[0];
+                    setAuthenticatedState({
+                        id: session.user.id,
+                        email: session.user.email,
+                        codename: savedCodename,
+                        isGuest: false
+                    });
+                }
+            }
+        });
+
+        function switchAuthMode(mode) {
+            authMode = mode;
+            const tabSignIn = document.getElementById('tab-signin');
+            const tabSignUp = document.getElementById('tab-signup');
+            const codenameGroup = document.getElementById('signup-codename-group');
+            const btnLabel = document.getElementById('btn-auth-label');
+            const errorBanner = document.getElementById('auth-error');
+
+            errorBanner.className = 'state-banner';
+
+            if (mode === 'signin') {
+                tabSignIn.classList.add('active');
+                tabSignUp.classList.remove('active');
+                codenameGroup.style.display = 'none';
+                btnLabel.textContent = 'เข้าสู่ระบบเพื่อเริ่มวัดระดับ';
+            } else {
+                tabSignUp.classList.add('active');
+                tabSignIn.classList.remove('active');
+                codenameGroup.style.display = 'block';
+                btnLabel.textContent = 'สมัครสมาชิกและเข้าสู่ระบบ';
+            }
+        }
+
+        async function handleAuthSubmit(event) {
+            event.preventDefault();
+            const email = document.getElementById('auth-email').value.trim();
+            const password = document.getElementById('auth-password').value;
+            const codenameInput = document.getElementById('auth-codename').value.trim();
+            const errorBanner = document.getElementById('auth-error');
+            const errorText = document.getElementById('auth-error-text');
+            const submitBtn = document.getElementById('btn-auth-submit');
+
+            errorBanner.className = 'state-banner';
+            submitBtn.disabled = true;
+
+            try {
+                if (!supabaseClient) throw new Error('ไม่พบการเชื่อมต่อ Supabase SDK');
+
+                if (authMode === 'signup') {
+                    const chosenCodename = codenameInput || email.split('@')[0];
+                    const { data, error } = await supabaseClient.auth.signUp({
+                        email,
+                        password,
+                        options: {
+                            data: { codename: chosenCodename }
+                        }
+                    });
+                    if (error) throw error;
+
+                    if (data.user) {
+                        setAuthenticatedState({
+                            id: data.user.id,
+                            email: data.user.email,
+                            codename: chosenCodename,
+                            isGuest: false
+                        });
+                        showToast('สมัครสมาชิกสำเร็จ! บันทึก User ID เรียบร้อย');
+                    }
+                } else {
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({
+                        email,
+                        password
+                    });
+                    if (error) throw error;
+
+                    if (data.user) {
+                        const savedCodename = data.user.user_metadata?.codename || email.split('@')[0];
+                        setAuthenticatedState({
+                            id: data.user.id,
+                            email: data.user.email,
+                            codename: savedCodename,
+                            isGuest: false
+                        });
+                        showToast('เข้าสู่ระบบสำเร็จ!');
+                    }
+                }
+            } catch (err) {
+                errorText.textContent = err.message || 'ไม่สามารถเข้าสู่ระบบได้ กรุณาตรวจสอบอีเมลและรหัสผ่าน';
+                errorBanner.className = 'state-banner error-state';
+            } finally {
+                submitBtn.disabled = false;
+            }
+        }
+
+        async function continueAsGuestWithRecord() {
+            // สร้าง Anonymous Session หรือ Guest UUID เพื่อ Record User ID ก่อนเริ่มประเมิน
+            let guestUserId = null;
+            let guestEmail = 'guest@mbiawti.local';
+
+            if (supabaseClient) {
+                try {
+                    const { data, error } = await supabaseClient.auth.signInAnonymously();
+                    if (!error && data?.user) {
+                        guestUserId = data.user.id;
+                        guestEmail = `Guest (${guestUserId.slice(0, 8)}...)`;
+                    }
+                } catch (e) {
+                    console.warn('Anonymous auth not enabled, generating client UUID');
+                }
+            }
+
+            if (!guestUserId) {
+                guestUserId = crypto.randomUUID ? crypto.randomUUID() : 'guest-' + Date.now();
+                guestEmail = `Guest (${guestUserId.slice(0, 8)}...)`;
+            }
+
+            setAuthenticatedState({
+                id: guestUserId,
+                email: guestEmail,
+                codename: '',
+                isGuest: true
+            });
+            showToast('สร้างรหัสผู้เล่น (User ID) เรียบร้อยแล้ว');
+        }
+
+        function setAuthenticatedState(userObj) {
+            authenticatedUser = userObj;
+            document.getElementById('header-user-pill').classList.add('active');
+            document.getElementById('header-user-email').textContent = `🆔 ${userObj.email}`;
+            document.getElementById('logged-in-userid-display').textContent = `${userObj.id} (${userObj.email})`;
+
+            if (userObj.codename) {
+                document.getElementById('user-codename').value = userObj.codename;
+            }
+
+            switchView('view-intro');
+        }
+
+        async function handleSignOut() {
+            if (supabaseClient) {
+                await supabaseClient.auth.signOut();
+            }
+            authenticatedUser = null;
+            currentDbIds = { userId: null, assessmentId: null, transactionId: null, leaderboardId: null };
+            document.getElementById('header-user-pill').classList.remove('active');
+            document.getElementById('user-codename').value = '';
+            switchView('view-auth');
+            showToast('ออกจากระบบเรียบร้อยแล้ว');
+        }
+
+        function switchView(viewId) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetToHome() {
+            currentIndex = 0;
+            userAnswers = new Array(quizData.length).fill(null);
+            touchedQuestions = new Array(quizData.length).fill(false);
+            currentDbIds = { userId: null, assessmentId: null, transactionId: null, leaderboardId: null };
+            if (authenticatedUser) {
+                switchView('view-intro');
+            } else {
+                switchView('view-auth');
+            }
+        }
+
+        async function startQuiz() {
+            if (!authenticatedUser) {
+                switchView('view-auth');
+                return;
+            }
+
+            const inputEl = document.getElementById('user-codename');
+            const errorBanner = document.getElementById('intro-error');
+            const btnStart = document.getElementById('btn-start');
+            const val = inputEl.value.trim();
+
+            if (!val) {
+                inputEl.classList.add('error');
+                errorBanner.className = 'state-banner error-state';
+                inputEl.focus();
+                return;
+            }
+
+            inputEl.classList.remove('error');
+            errorBanner.className = 'state-banner';
+            userCodename = val;
+
+            // บันทึก User Profile พร้อม auth_user_id ลง Supabase ทันทีก่อนเริ่มทำการวัดระดับ
+            btnStart.disabled = true;
+            btnStart.innerHTML = '<span>กำลังบันทึก User ID ก่อนเริ่มวัดระดับ...</span>';
+
+            await createUserProfileBeforeQuiz(userCodename);
+
+            btnStart.disabled = false;
+            btnStart.innerHTML = '<span>เริ่มการประเมินตัวตน</span><span>→</span>';
+
+            currentIndex = 0;
+            switchView('view-quiz');
+            renderQuestion();
+        }
+
+        async function createUserProfileBeforeQuiz(codename) {
+            if (!supabaseClient) return;
+            try {
+                const profilePayload = {
+                    auth_user_id: authenticatedUser ? authenticatedUser.id : null,
+                    email: authenticatedUser && !authenticatedUser.isGuest ? authenticatedUser.email : null,
+                    codename: codename,
+                    device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+                    user_agent: navigator.userAgent
+                };
+                const { data, error } = await supabaseClient
+                    .from('users_profile')
+                    .insert([profilePayload])
+                    .select()
+                    .single();
+
+                if (error) throw error;
+                if (data && data.id) {
+                    currentDbIds.userId = data.id;
+                }
+            } catch (err) {
+                console.error('Pre-quiz User Profile Insert Error:', err);
+            }
+        }
+
+        function prevQuestion() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                renderQuestion();
+            }
+        }
+
+        function nextQuestion() {
+            // Double check validation (Trigger Error State if forced)
+            if (!isCurrentQuestionValid()) {
+                const banner = document.getElementById('quiz-state-banner');
+                const icon = document.getElementById('state-icon');
+                const msg = document.getElementById('state-message');
+                banner.className = 'state-banner error-state';
+                icon.textContent = '⚠️';
+                msg.textContent = 'ข้อผิดพลาด (Error State): คุณยังไม่ได้ระบุคำตอบในข้อนี้!';
+                return;
+            }
+
+            if (currentIndex < quizData.length - 1) {
+                currentIndex++;
+                renderQuestion();
+            } else {
+                calculateAndShowResult();
+            }
+        }
+
+        /* ==========================================================================
+           6. SCORING ALGORITHM & RESULT CLASSIFICATION (MAX 49 POINTS)
+           ========================================================================== */
+        function calculateTotalScore() {
+            let totalScore = 0;
+
+            quizData.forEach((q, idx) => {
+                const ans = userAnswers[idx];
+                if (q.type === 'choice' && ans !== null) {
+                    totalScore += q.options[ans].score;
+                } else if (q.type === 'slider' && ans !== null) {
+                    totalScore += ans; // 1 - 7 คะแนนตรงตัว
+                } else if (q.type === 'checkbox' && Array.isArray(ans)) {
+                    let subTotal = 0;
+                    ans.forEach(optIdx => {
+                        subTotal += q.options[optIdx].score;
+                    });
+                    // เพดานคะแนนของข้อ checkbox คือสูงสุด 7 คะแนนต่อข้อ
+                    totalScore += Math.min(subTotal, 7);
+                }
+            });
+
+            return totalScore;
+        }
+
+        function getBiaoPersona(score) {
+            // ช่วงคะแนน 8 ถึง 56 คะแนน (8 ข้อ x 7 คะแนน)
+            if (score <= 19) {
+                return {
+                    code: "NORM-1",
+                    title: "ผู้สังเกตการณ์แห่งโลกความจริง",
+                    quote: "“ความธรรมดาที่มั่นคง คือเกราะป้องกันที่ดีที่สุด”",
+                    desc: "คุณเป็นคนที่มีความมั่นใจในแบบฉบับของคนอยู่กับความเป็นจริง มีเหตุผลสูง ไม่หลงไปกับจินตนาการเกินเบอร์ แต่ลึกๆ แล้วคุณก็แอบเอ็นดูความเบียวของคนรอบข้างอยู่เงียบๆ",
+                    aura: "120% (นิ่งสงบ)",
+                    item: "สมุดโน้ตปกเรียบและนาฬิกาข้อมือ"
+                };
+            } else if (score <= 32) {
+                return {
+                    code: "COOL-4",
+                    title: "จอมวางแผนผู้ซ่อนคม",
+                    quote: "“เสือย่อมซ่อนเล็บ... จนกว่าจะถึงจังหวะที่ใช่”",
+                    desc: "คุณมีความมั่นใจในตัวเองสูงและมีสไตล์เฉพาะตัว ชอบคิดวิเคราะห์สถานการณ์ล่วงหน้าเสมอ แม้ภายนอกจะดูสุขุมนุ่มลึก แต่ในหัวของคุณมีพล็อตเรื่องสุดเท่ซ่อนอยู่เพียบ!",
+                    aura: "350% (คมกริบ)",
+                    item: "แว่นกันแดดทรงวินเทจและกาแฟดำ"
+                };
+            } else if (score <= 44) {
+                return {
+                    code: "CHUN-7",
+                    title: "ผู้ตื่นรู้แห่งมิติคู่ขนาน",
+                    quote: "“สายลมกำลังเปลี่ยนทิศ... นี่แหละคือสัญญาณของข้า”",
+                    desc: "ความมั่นใจของคุณทะลุปรอทจนเกิดเป็นออร่าตัวเอก! คุณสามารถเปลี่ยนเรื่องธรรมดาในชีวิตประจำวันให้กลายเป็นฉากเปิดตัวสุดอลังการได้เสมอ ใครอยู่ใกล้ก็สัมผัสได้ถึงพลังงานความเบียวระดับพรีเมียม",
+                    aura: "777% (เจิดจรัส)",
+                    item: "เสื้อโค้ทตัวยาวและหูฟังตัดเสียงรบกวน"
+                };
+            } else {
+                return {
+                    code: "GOD-99",
+                    title: "มหาเทพผู้บัญชาการโชคชะตา",
+                    quote: "“จงก้มหน้าลงซะ... เพราะแสงสว่างจากตัวข้ามันเจิดจ้าเกินไป!”",
+                    desc: "ยินดีด้วย! คุณคือจุดสูงสุดของห่วงโซ่ความเบียว (MเบียวTI) ความมั่นใจของคุณไร้ขีดจำกัด ทุกย่างก้าวคือรันเวย์ ทุกคำพูดคือคัมภีร์ โลกใบนี้หมุนรอบตัวคุณอย่างแท้จริง!",
+                    aura: "9,999% (ไร้เทียมทาน)",
+                    item: "ผ้าพันคอสีดำและแหวนเงินสลักลายโบราณ"
+                };
+            }
+        }
+
+        let latestResultSummary = "";
+        // เก็บ State สำหรับ Transaction Tracking (เตรียมส่งเข้า Supabase)
+        let currentSessionPayload = null;
+
+        function calculateAndShowResult() {
+            const score = calculateTotalScore();
+            const maxScore = 56;
+            const persona = getBiaoPersona(score);
+
+            document.getElementById('res-code').textContent = persona.code;
+            document.getElementById('res-title').textContent = persona.title;
+            document.getElementById('res-user').textContent = `ผลการวิเคราะห์ของ: ${userCodename}`;
+            document.getElementById('res-score').textContent = score;
+            document.getElementById('res-quote').textContent = persona.quote;
+            document.getElementById('res-desc').textContent = persona.desc;
+            document.getElementById('res-aura').textContent = persona.aura;
+            document.getElementById('res-item').textContent = persona.item;
+
+            // ดึงสินค้าแนะนำจากคำตอบข้อที่ 8 (index 7)
+            const q8SelectedIndices = Array.isArray(userAnswers[7]) ? userAnswers[7] : [0];
+            const recommendedProducts = q8SelectedIndices.map(idx => {
+                const tag = quizData[7].options[idx].tag;
+                return productCatalog[tag];
+            });
+
+            renderRecommendedProducts(recommendedProducts);
+
+            // เตรียมโครงสร้างข้อมูลทั้งหมดสำหรับบันทึกเข้า Supabase
+            currentSessionPayload = {
+                user_profile: {
+                    auth_user_id: authenticatedUser ? authenticatedUser.id : null,
+                    email: authenticatedUser && !authenticatedUser.isGuest ? authenticatedUser.email : null,
+                    codename: userCodename,
+                    device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+                    user_agent: navigator.userAgent
+                },
+                assessment_result: {
+                    total_score: score,
+                    max_score: maxScore,
+                    mbiawti_code: persona.code,
+                    persona_title: persona.title,
+                    aura_level: persona.aura
+                },
+                preferences_answers: answersDetail,
+                transaction_data: {
+                    recommended_product_ids: recommendedProducts.map(p => p.id),
+                    is_interested: null,
+                    total_clicks: 0,
+                    popup_opened_count: 0,
+                    product_page_opened_count: 0,
+                    clicked_products: []
+                }
+            };
+
+            // เตรียมข้อมูลสำหรับ Pop-up และ Full Product Page
+            document.getElementById('popup-persona-name').textContent = `${persona.code} — ${persona.title}`;
+            document.getElementById('page-persona-badge').textContent = persona.title;
+            renderProductCardsToContainer('popup-products-list', recommendedProducts, 'popup');
+            renderProductCardsToContainer('fullpage-products-list', recommendedProducts, 'fullpage');
+
+            // รีเซ็ตสถานะปุ่มสนใจผลิตภัณฑ์
+            document.getElementById('btn-interest-yes').className = 'btn-interest-toggle';
+            document.getElementById('btn-interest-no').className = 'btn-interest-toggle';
+            document.getElementById('transaction-log-status').textContent = '';
+            document.getElementById('fullpage-transaction-status').textContent = '';
+
+            latestResultSummary = `ผลวัดระดับความเบียวออนไลน์ [MเบียวTI]\nฉายา: ${userCodename}\nรหัสบุคลิกภาพ: ${persona.code} — "${persona.title}"\nคะแนนความเบียว: ${score}/${maxScore} คะแนน\n${persona.quote}`;
+
+            switchView('view-result');
+
+            // Animate Meter Bar
+            setTimeout(() => {
+                const percentage = Math.round((score / maxScore) * 100);
+                document.getElementById('res-meter-fill').style.width = `${percentage}%`;
+            }, 150);
+
+            // บันทึกข้อมูลลง Supabase และโหลด Leaderboard
+            await saveAssessmentToSupabase();
+            await fetchLeaderboard();
+
+            // เปิด Pop-up แนะนำผลิตภัณฑ์อัตโนมัติหลังแสดงผลลัพธ์ 1.1 วินาที เพื่อเก็บ Transaction
+            setTimeout(() => {
+                openProductPopup(false);
+            }, 1100);
+        }
+
+        function openProductPopup(isManual = false) {
+            const modal = document.getElementById('product-popup-modal');
+            modal.classList.add('open');
+
+            if (currentSessionPayload) {
+                currentSessionPayload.transaction_data.popup_opened_count += 1;
+                syncTransactionToSupabase();
+            }
+        }
+
+        function closeProductPopup() {
+            document.getElementById('product-popup-modal').classList.remove('open');
+        }
+
+        function openProductPage() {
+            if (currentSessionPayload) {
+                currentSessionPayload.transaction_data.product_page_opened_count += 1;
+                syncTransactionToSupabase();
+            }
+            switchView('view-products-page');
+        }
+            };
+
+            // รีเซ็ตสถานะปุ่มสนใจผลิตภัณฑ์
+            document.getElementById('btn-interest-yes').className = 'btn-interest-toggle';
+            document.getElementById('btn-interest-no').className = 'btn-interest-toggle';
+            document.getElementById('transaction-log-status').textContent = '';
+
+            latestResultSummary = `ผลวัดระดับความเบียวออนไลน์ [MเบียวTI]\nฉายา: ${userCodename}\nรหัสบุคลิกภาพ: ${persona.code} — "${persona.title}"\nคะแนนความเบียว: ${score}/${maxScore} คะแนน\n${persona.quote}`;
+
+            switchView('view-result');
+
+            // Animate Meter Bar
+            setTimeout(() => {
+                const percentage = Math.round((score / maxScore) * 100);
+                document.getElementById('res-meter-fill').style.width = `${percentage}%`;
+            }, 150);
+        }
+
+        function renderRecommendedProducts(products) {
+            const container = document.getElementById('recommended-products-list');
+            container.innerHTML = '';
+
+            products.forEach(prod => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'product-item-card';
+                itemEl.innerHTML = `
+                    <div class="product-info">
+                        <h4>${prod.name}</h4>
+                        <p>${prod.desc}</p>
+                        <span class="product-price-tag">ราคาแนะนำ: ${prod.price}</span>
+                    </div>
+                    <a href="${prod.url}" target="_blank" rel="noopener noreferrer" class="btn-order-link" onclick="trackProductClick('${prod.id}', '${prod.name}', this)">
+                        <span>สั่งซื้อสินค้า</span>
+                        <span>↗</span>
+                    </a>
+                `;
+                container.appendChild(itemEl);
+            });
+        }
+
+        function trackProductClick(productId, productName, btnEl) {
+            btnEl.classList.add('clicked');
+            btnEl.innerHTML = '<span>เปิดลิงก์แล้ว ✓</span>';
+
+            if (currentSessionPayload) {
+                currentSessionPayload.transaction_data.is_interested = true;
+                if (!currentSessionPayload.transaction_data.clicked_products.some(p => p.product_id === productId)) {
+                    currentSessionPayload.transaction_data.clicked_products.push({
+                        product_id: productId,
+                        product_name: productName,
+                        clicked_at: new Date().toISOString()
+                    });
+                }
+            }
+            recordProductInterest(true, true);
+        }
+
+        function recordProductInterest(isInterested, fromLinkClick = false) {
+            const btnYes = document.getElementById('btn-interest-yes');
+            const btnNo = document.getElementById('btn-interest-no');
+            const statusEl = document.getElementById('transaction-log-status');
+
+            if (currentSessionPayload) {
+                currentSessionPayload.transaction_data.is_interested = isInterested;
+            }
+
+            if (isInterested) {
+                btnYes.className = 'btn-interest-toggle active-yes';
+                btnNo.className = 'btn-interest-toggle';
+                const clickedCount = currentSessionPayload ? currentSessionPayload.transaction_data.clicked_products.length : 0;
+                statusEl.textContent = fromLinkClick
+                    ? `✓ บันทึก Transaction: ผู้ใช้สนใจและกดดูสินค้าแล้ว (${clickedCount} รายการ)`
+                    : `✓ บันทึก Transaction: ผู้ใช้ระบุว่า "สนใจผลิตภัณฑ์ที่แนะนำ"`;
+            } else {
+                btnYes.className = 'btn-interest-toggle';
+                btnNo.className = 'btn-interest-toggle active-no';
+                statusEl.textContent = `✓ บันทึก Transaction: ผู้ใช้ระบุว่า "ยังไม่สนใจผลิตภัณฑ์ในตอนนี้"`;
+            }
+        }
+
+        let latestResultSummary = "";
+        // เก็บ State สำหรับ Transaction Tracking & Supabase Record IDs
+        let currentSessionPayload = null;
+        let currentDbIds = {
+            userId: null,
+            assessmentId: null,
+            transactionId: null,
+            leaderboardId: null
+        };
+        let productClickCounts = {};
+
+        async function calculateAndShowResult() {
+            const score = calculateTotalScore();
+            const maxScore = 56;
+            const persona = getBiaoPersona(score);
+
+            document.getElementById('res-code').textContent = persona.code;
+            document.getElementById('res-title').textContent = persona.title;
+            document.getElementById('res-user').textContent = `ผลการวิเคราะห์ของ: ${userCodename}`;
+            document.getElementById('res-score').textContent = score;
+            document.getElementById('res-quote').textContent = persona.quote;
+            document.getElementById('res-desc').textContent = persona.desc;
+            document.getElementById('res-aura').textContent = persona.aura;
+            document.getElementById('res-item').textContent = persona.item;
+
+            // ดึงสินค้าแนะนำจากคำตอบข้อที่ 8 (index 7)
+            const q8SelectedIndices = Array.isArray(userAnswers[7]) ? userAnswers[7] : [0];
+            const recommendedProducts = q8SelectedIndices.map(idx => {
+                const tag = quizData[7].options[idx].tag;
+                return productCatalog[tag];
+            });
+
+            renderRecommendedProducts(recommendedProducts);
+
+            // เตรียมโครงสร้างข้อมูลทั้งหมดสำหรับบันทึกเข้า Supabase
+            const answersDetail = quizData.map((q, idx) => {
+                const ans = userAnswers[idx];
+                let qScore = 0;
+                let selectedText = [];
+
+                if (q.type === 'choice' && ans !== null) {
+                    qScore = q.options[ans].score;
+                    selectedText = [q.options[ans].text];
+                } else if (q.type === 'slider' && ans !== null) {
+                    qScore = ans;
+                    selectedText = [`ระดับ ${ans}`];
+                } else if (q.type === 'checkbox' && Array.isArray(ans)) {
+                    let sub = 0;
+                    ans.forEach(i => {
+                        sub += q.options[i].score;
+                        selectedText.push(q.options[i].text);
+                    });
+                    qScore = Math.min(sub, 7);
+                }
+
+                return {
+                    question_id: q.id,
+                    category: q.category,
+                    question_type: q.type,
+                    raw_answer: ans,
+                    selected_text: selectedText,
+                    question_score: qScore
+                };
+            });
+
+            productClickCounts = {};
+
+            currentSessionPayload = {
+                user_profile: {
+                    codename: userCodename,
+                    device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+                    user_agent: navigator.userAgent
+                },
+                assessment_result: {
+                    total_score: score,
+                    max_score: maxScore,
+                    mbiawti_code: persona.code,
+                    persona_title: persona.title,
+                    aura_level: persona.aura
+                },
+                preferences_answers: answersDetail,
+                transaction_data: {
+                    recommended_product_ids: recommendedProducts.map(p => p.id),
+                    is_interested: null,
+                    total_clicks: 0,
+                    clicked_products: []
+                }
+            };
+
+            // รีเซ็ตสถานะปุ่มสนใจผลิตภัณฑ์
+            document.getElementById('btn-interest-yes').className = 'btn-interest-toggle';
+            document.getElementById('btn-interest-no').className = 'btn-interest-toggle';
+            document.getElementById('transaction-log-status').textContent = '';
+
+            latestResultSummary = `ผลวัดระดับความเบียวออนไลน์ [MเบียวTI]\nฉายา: ${userCodename}\nรหัสบุคลิกภาพ: ${persona.code} — "${persona.title}"\nคะแนนความเบียว: ${score}/${maxScore} คะแนน\n${persona.quote}`;
+
+            switchView('view-result');
+
+            // Animate Meter Bar
+            setTimeout(() => {
+                const percentage = Math.round((score / maxScore) * 100);
+                document.getElementById('res-meter-fill').style.width = `${percentage}%`;
+            }, 150);
+
+            // บันทึกข้อมูลลง Supabase และโหลด Leaderboard
+            await saveAssessmentToSupabase();
+            await fetchLeaderboard();
+        }
+
+        async function saveAssessmentToSupabase() {
+            const syncBadge = document.getElementById('db-sync-badge');
+            if (!supabaseClient) {
+                syncBadge.textContent = 'โหมดออฟไลน์ (ไม่พบ SDK)';
+                return;
+            }
+
+            try {
+                syncBadge.textContent = 'กำลังบันทึกข้อมูล...';
+
+                // 1. ตรวจสอบว่ามี userId ที่สร้างไว้ก่อนเริ่มวัดระดับหรือไม่ (ถ้ายังไม่มีให้สร้างใหม่)
+                if (!currentDbIds.userId) {
+                    const { data: userData, error: userErr } = await supabaseClient
+                        .from('users_profile')
+                        .insert([currentSessionPayload.user_profile])
+                        .select()
+                        .single();
+                    if (userErr) throw userErr;
+                    currentDbIds.userId = userData.id;
+                }
+
+                // 2. บันทึกระดับความเบียวหลังการวัดระดับ (assessment_results)
+                const { data: resData, error: resErr } = await supabaseClient
+                    .from('assessment_results')
+                    .insert([{
+                        user_id: currentDbIds.userId,
+                        ...currentSessionPayload.assessment_result
+                    }])
+                    .select()
+                    .single();
+                if (resErr) throw resErr;
+                currentDbIds.assessmentId = resData.id;
+
+                // 3. บันทึกข้อมูลความชอบ ความสนใจ รายข้อ (user_preferences_answers)
+                const answerRows = currentSessionPayload.preferences_answers.map(a => ({
+                    assessment_id: currentDbIds.assessmentId,
+                    user_id: currentDbIds.userId,
+                    question_id: a.question_id,
+                    category: a.category,
+                    question_type: a.question_type,
+                    selected_options: { indices: a.raw_answer, labels: a.selected_text },
+                    question_score: a.question_score
+                }));
+                const { error: ansErr } = await supabaseClient
+                    .from('user_preferences_answers')
+                    .insert(answerRows);
+                if (ansErr) throw ansErr;
+
+                // 4. สร้าง Transaction เริ่มต้นสำหรับผลิตภัณฑ์แนะนำ (product_recommendation_transactions)
+                const { data: txData, error: txErr } = await supabaseClient
+                    .from('product_recommendation_transactions')
+                    .insert([{
+                        assessment_id: currentDbIds.assessmentId,
+                        user_id: currentDbIds.userId,
+                        auth_user_id: authenticatedUser ? authenticatedUser.id : null,
+                        is_interested: null,
+                        total_clicks: 0,
+                        popup_opened_count: currentSessionPayload.transaction_data.popup_opened_count,
+                        product_page_opened_count: currentSessionPayload.transaction_data.product_page_opened_count,
+                        shown_product_ids: currentSessionPayload.transaction_data.recommended_product_ids,
+                        clicked_products: []
+                    }])
+                    .select()
+                    .single();
+                if (txErr) throw txErr;
+                currentDbIds.transactionId = txData.id;
+
+                // 5. บันทึกลงตาราง leaderboard สำหรับจัดอันดับรวม
+                const { data: lbData, error: lbErr } = await supabaseClient
+                    .from('leaderboard')
+                    .insert([{
+                        user_id: currentDbIds.userId,
+                        auth_user_id: authenticatedUser ? authenticatedUser.id : null,
+                        assessment_id: currentDbIds.assessmentId,
+                        codename: currentSessionPayload.user_profile.codename,
+                        total_score: currentSessionPayload.assessment_result.total_score,
+                        mbiawti_code: currentSessionPayload.assessment_result.mbiawti_code,
+                        persona_title: currentSessionPayload.assessment_result.persona_title,
+                        product_click_count: 0,
+                        interested_products: []
+                    }])
+                    .select()
+                    .single();
+                if (lbErr) throw lbErr;
+                currentDbIds.leaderboardId = lbData.id;
+
+                syncBadge.textContent = '✓ บันทึกข้อมูลเรียบร้อย';
+            } catch (err) {
+                console.error('Supabase Save Error:', err);
+                syncBadge.textContent = '⚠️ รออัปเดตตารางใน Supabase';
+            }
+        }
+
+        async function fetchLeaderboard() {
+            const listEl = document.getElementById('leaderboard-list');
+            if (!supabaseClient) return;
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('leaderboard')
+                    .select('codename, total_score, mbiawti_code, persona_title')
+                    .order('total_score', { ascending: false })
+                    .order('created_at', { ascending: true })
+                    .limit(5);
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    listEl.innerHTML = '<div style="font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 10px;">ยังไม่มีข้อมูลอันดับ — คุณคือผู้บุกเบิกคนแรก!</div>';
+                    return;
+                }
+
+                listEl.innerHTML = '';
+                data.forEach((row, index) => {
+                    const div = document.createElement('div');
+                    div.className = `leaderboard-row ${index === 0 ? 'top-rank' : ''}`;
+                    div.innerHTML = `
+                        <div style="display: flex; align-items: center;">
+                            <span class="lb-rank-badge">${index + 1}</span>
+                            <div>
+                                <div style="font-weight: 800; color: var(--text-ink);">${row.codename} <span style="font-size: 0.75rem; color: var(--color-deep-pink);">[${row.mbiawti_code}]</span></div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted);">${row.persona_title}</div>
+                            </div>
+                        </div>
+                        <div style="font-family: var(--font-display); font-size: 1.05rem; color: var(--text-ink);">
+                            ${row.total_score} <span style="font-size: 0.72rem; font-family: var(--font-sans);">pts</span>
+                        </div>
+                    `;
+                    listEl.appendChild(div);
+                });
+            } catch (err) {
+                console.error('Leaderboard Fetch Error:', err);
+                listEl.innerHTML = '<div style="font-size: 0.82rem; color: var(--text-muted); text-align: center; padding: 10px;">กรุณารันไฟล์ supabase_schema.sql เพื่อเปิดใช้งานตาราง leaderboard</div>';
+            }
+        }
+
+        function renderRecommendedProducts(products) {
+            products.forEach(prod => {
+                productClickCounts[prod.id] = 0;
+            });
+            renderProductCardsToContainer('recommended-products-list', products, 'inline');
+        }
+
+        function renderProductCardsToContainer(containerId, products, sourceContext) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
+
+            products.forEach(prod => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'product-item-card';
+                itemEl.innerHTML = `
+                    <div class="product-visual-art" style="background: ${prod.artBg};">
+                        <span>${prod.artEmoji}</span>
+                        <span class="product-art-caption">${prod.artCaption}</span>
+                    </div>
+                    <div class="product-info" style="flex: 1;">
+                        <h4>${prod.name}</h4>
+                        <p>${prod.desc}</p>
+                        <div>
+                            <span class="product-price-tag">ราคาแนะนำ: ${prod.price}</span>
+                            <span class="product-click-counter click-count-label-${prod.id}">(คลิกดูแล้ว ${productClickCounts[prod.id] || 0} ครั้ง)</span>
+                        </div>
+                    </div>
+                    <a href="${prod.url}" target="_blank" rel="noopener noreferrer" class="btn-order-link" onclick="trackProductClick('${prod.id}', '${prod.name}', '${sourceContext}', this)">
+                        <span>วาร์ปไปดูสินค้า</span>
+                        <span>↗</span>
+                    </a>
+                `;
+                container.appendChild(itemEl);
+            });
+        }
+
+        async function trackProductClick(productId, productName, sourceContext, btnEl) {
+            productClickCounts[productId] = (productClickCounts[productId] || 0) + 1;
+            document.querySelectorAll(`.click-count-label-${productId}`).forEach(span => {
+                span.textContent = `(คลิกดูแล้ว ${productClickCounts[productId]} ครั้ง)`;
+            });
+
+            btnEl.classList.add('clicked');
+            btnEl.innerHTML = `<span>เปิดดูแล้ว (${productClickCounts[productId]}) ✓</span>`;
+
+            if (currentSessionPayload) {
+                currentSessionPayload.transaction_data.is_interested = true;
+                currentSessionPayload.transaction_data.total_clicks += 1;
+
+                const existingIdx = currentSessionPayload.transaction_data.clicked_products.findIndex(p => p.product_id === productId);
+                if (existingIdx > -1) {
+                    currentSessionPayload.transaction_data.clicked_products[existingIdx].click_count += 1;
+                    currentSessionPayload.transaction_data.clicked_products[existingIdx].last_source = sourceContext;
+                    currentSessionPayload.transaction_data.clicked_products[existingIdx].last_clicked_at = new Date().toISOString();
+                } else {
+                    currentSessionPayload.transaction_data.clicked_products.push({
+                        product_id: productId,
+                        product_name: productName,
+                        click_count: 1,
+                        first_source: sourceContext,
+                        last_source: sourceContext,
+                        first_clicked_at: new Date().toISOString(),
+                        last_clicked_at: new Date().toISOString()
+                    });
+                }
+            }
+            await recordProductInterest(true, true);
+        }
+
+        async function recordProductInterest(isInterested, fromLinkClick = false) {
+            const btnYes = document.getElementById('btn-interest-yes');
+            const btnNo = document.getElementById('btn-interest-no');
+            const statusEl = document.getElementById('transaction-log-status');
+            const fullPageStatusEl = document.getElementById('fullpage-transaction-status');
+
+            if (currentSessionPayload) {
+                currentSessionPayload.transaction_data.is_interested = isInterested;
+            }
+
+            const totalClicks = currentSessionPayload ? currentSessionPayload.transaction_data.total_clicks : 0;
+            let statusMsg = '';
+
+            if (isInterested) {
+                btnYes.className = 'btn-interest-toggle active-yes';
+                btnNo.className = 'btn-interest-toggle';
+                const clickedItemsCount = currentSessionPayload ? currentSessionPayload.transaction_data.clicked_products.length : 0;
+                statusMsg = fromLinkClick
+                    ? `✓ บันทึกลง Supabase (User ID: ${authenticatedUser?.id?.slice(0, 8)}...): กดออกไปดูสินค้าแล้วรวม ${totalClicks} ครั้ง (${clickedItemsCount} รายการ)`
+                    : `✓ บันทึกลง Supabase: ระบุว่า "สนใจผลิตภัณฑ์ที่แนะนำ" (คลิกรวม ${totalClicks} ครั้ง)`;
+            } else {
+                btnYes.className = 'btn-interest-toggle';
+                btnNo.className = 'btn-interest-toggle active-no';
+                statusMsg = `✓ บันทึกลง Supabase: ระบุว่า "ยังไม่สนใจผลิตภัณฑ์ในตอนนี้"`;
+            }
+
+            if (statusEl) statusEl.textContent = statusMsg;
+            if (fullPageStatusEl) fullPageStatusEl.textContent = statusMsg;
+
+            await syncTransactionToSupabase();
+        }
+
+        async function syncTransactionToSupabase() {
+            if (!supabaseClient || !currentDbIds.transactionId || !currentSessionPayload) return;
+            try {
+                const tx = currentSessionPayload.transaction_data;
+                await supabaseClient
+                    .from('product_recommendation_transactions')
+                    .update({
+                        is_interested: tx.is_interested,
+                        total_clicks: tx.total_clicks,
+                        popup_opened_count: tx.popup_opened_count,
+                        product_page_opened_count: tx.product_page_opened_count,
+                        clicked_products: tx.clicked_products,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', currentDbIds.transactionId);
+
+                if (currentDbIds.leaderboardId) {
+                    await supabaseClient
+                        .from('leaderboard')
+                        .update({
+                            is_interested_product: tx.is_interested,
+                            product_click_count: tx.total_clicks,
+                            interested_products: tx.clicked_products
+                        })
+                        .eq('id', currentDbIds.leaderboardId);
+                }
+            } catch (err) {
+                console.error('Transaction Update Error:', err);
+            }
+        }
+
+        function restartQuiz() {
+            document.getElementById('res-meter-fill').style.width = '0%';
+            currentIndex = 0;
+            userAnswers = new Array(quizData.length).fill(null);
+            touchedQuestions = new Array(quizData.length).fill(false);
+            // สร้าง User Profile รอบใหม่ใน Supabase เพื่อให้เก็บแยก Session ชัดเจน
+            currentDbIds = { userId: null, assessmentId: null, transactionId: null, leaderboardId: null };
+            createUserProfileBeforeQuiz(userCodename);
+            switchView('view-quiz');
+            renderQuestion();
+        }
+
+        function copyResultText() {
+            const textArea = document.createElement("textarea");
+            textArea.value = latestResultSummary;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast("คัดลอกผลลัพธ์ความเบียวเรียบร้อยแล้ว!");
+            } catch (err) {
+                showToast("ไม่สามารถคัดลอกได้ กรุณาแคปหน้าจอแทน");
+            }
+            document.body.removeChild(textArea);
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2800);
+        }
+    </script>
+</body>
+</html>
