@@ -1318,10 +1318,29 @@
                     </button>
                 </form>
 
-                <div style="margin-top: 16px; text-align: center;">
-                    <button type="button" class="btn btn-secondary" style="width: 100%; font-size: 0.88rem;" onclick="continueAsGuestWithRecord()">
-                        ⚡ เข้าใช้งานด่วนแบบ Guest (สร้างรหัสผู้เล่นอัตโนมัติ)
-                    </button>
+                <!-- Fast Guest / Trial Mode with Phone Number -->
+                <div style="margin-top: 24px; padding-top: 20px; border-top: 2px dashed #CCCCCC;">
+                    <div style="font-size: 0.85rem; font-weight: 800; color: var(--color-deep-pink); margin-bottom: 10px;">
+                        ⚡ โหมดทดลอง / เข้าใช้งานด่วนแบบ Guest (กรอกเพียงเบอร์โทรศัพท์)
+                    </div>
+                    <form id="guest-phone-form" onsubmit="continueAsGuestWithPhone(event)" style="display: flex; flex-direction: column; gap: 10px;">
+                        <input 
+                            type="tel" 
+                            id="guest-phone-input" 
+                            class="editorial-input" 
+                            placeholder="ระบุเบอร์โทรศัพท์ของคุณ (เช่น 0812345678)"
+                            pattern="[0-9]{9,10}"
+                            maxlength="10"
+                            required
+                        >
+                        <div id="guest-phone-error" class="state-banner" role="alert" style="margin-top: 0;">
+                            <span>⚠️</span>
+                            <span id="guest-phone-error-text">กรุณาระบุเบอร์โทรศัพท์ให้ถูกต้อง (ตัวเลข 9-10 หลัก)</span>
+                        </div>
+                        <button type="submit" id="btn-guest-phone" class="btn btn-secondary" style="width: 100%; font-size: 0.92rem; background-color: rgba(42, 241, 81, 0.2);">
+                            📱 เข้าสู่โหมดทดลองทันทีด้วยเบอร์โทรศัพท์ →
+                        </button>
+                    </form>
                 </div>
             </div>
         </section>
@@ -1787,7 +1806,7 @@
            2. APPLICATION STATE & AUTHENTICATION (SIGN IN / SIGN UP)
            ========================================================================== */
         let authMode = 'signin'; // 'signin' | 'signup'
-        let authenticatedUser = null; // { id, email, codename, isGuest }
+        let authenticatedUser = null; // { id, email, phone, codename, isGuest }
         let userCodename = "";
         let currentIndex = 0;
         let userAnswers = new Array(quizData.length).fill(null);
@@ -1798,12 +1817,13 @@
             if (supabaseClient) {
                 const { data: { session } } = await supabaseClient.auth.getSession();
                 if (session && session.user) {
-                    const savedCodename = session.user.user_metadata?.codename || session.user.email.split('@')[0];
+                    const savedCodename = session.user.user_metadata?.codename || (session.user.email ? session.user.email.split('@')[0] : 'ผู้ถูกเลือก');
                     setAuthenticatedState({
                         id: session.user.id,
-                        email: session.user.email,
+                        email: session.user.email || '',
+                        phone: session.user.user_metadata?.phone || '',
                         codename: savedCodename,
-                        isGuest: false
+                        isGuest: !session.user.email
                     });
                 }
             }
@@ -1862,6 +1882,7 @@
                         setAuthenticatedState({
                             id: data.user.id,
                             email: data.user.email,
+                            phone: '',
                             codename: chosenCodename,
                             isGuest: false
                         });
@@ -1879,6 +1900,7 @@
                         setAuthenticatedState({
                             id: data.user.id,
                             email: data.user.email,
+                            phone: '',
                             codename: savedCodename,
                             isGuest: false
                         });
@@ -1893,42 +1915,66 @@
             }
         }
 
-        async function continueAsGuestWithRecord() {
-            // สร้าง Anonymous Session หรือ Guest UUID เพื่อ Record User ID ก่อนเริ่มประเมิน
+        async function continueAsGuestWithPhone(event) {
+            event.preventDefault();
+            const phoneInput = document.getElementById('guest-phone-input');
+            const errorBanner = document.getElementById('guest-phone-error');
+            const errorText = document.getElementById('guest-phone-error-text');
+            const btnGuest = document.getElementById('btn-guest-phone');
+
+            const rawPhone = phoneInput.value.replace(/[^0-9]/g, '');
+            if (rawPhone.length < 9 || rawPhone.length > 10) {
+                phoneInput.classList.add('error');
+                errorText.textContent = 'กรุณาระบุเบอร์โทรศัพท์ให้ถูกต้อง (ตัวเลข 9-10 หลัก)';
+                errorBanner.className = 'state-banner error-state';
+                phoneInput.focus();
+                return;
+            }
+
+            phoneInput.classList.remove('error');
+            errorBanner.className = 'state-banner';
+            btnGuest.disabled = true;
+            btnGuest.textContent = 'กำลังสร้างรหัสผู้ทดลอง...';
+
+            // สร้าง Anonymous Session หรือ Guest UUID เพื่อ Record User ID ผูกกับเบอร์โทรศัพท์
             let guestUserId = null;
-            let guestEmail = 'guest@mbiawti.local';
 
             if (supabaseClient) {
                 try {
-                    const { data, error } = await supabaseClient.auth.signInAnonymously();
+                    const { data, error } = await supabaseClient.auth.signInAnonymously({
+                        options: { data: { phone: rawPhone } }
+                    });
                     if (!error && data?.user) {
                         guestUserId = data.user.id;
-                        guestEmail = `Guest (${guestUserId.slice(0, 8)}...)`;
                     }
                 } catch (e) {
-                    console.warn('Anonymous auth not enabled, generating client UUID');
+                    console.warn('Anonymous auth fallback to client UUID');
                 }
             }
 
             if (!guestUserId) {
                 guestUserId = crypto.randomUUID ? crypto.randomUUID() : 'guest-' + Date.now();
-                guestEmail = `Guest (${guestUserId.slice(0, 8)}...)`;
             }
+
+            btnGuest.disabled = false;
+            btnGuest.textContent = '📱 เข้าสู่โหมดทดลองทันทีด้วยเบอร์โทรศัพท์ →';
 
             setAuthenticatedState({
                 id: guestUserId,
-                email: guestEmail,
-                codename: '',
+                email: '',
+                phone: rawPhone,
+                codename: `ผู้ท้าชิง-${rawPhone.slice(-4)}`,
                 isGuest: true
             });
-            showToast('สร้างรหัสผู้เล่น (User ID) เรียบร้อยแล้ว');
+            showToast(`เข้าสู่โหมดทดลองด้วยเบอร์ ${rawPhone} สำเร็จ!`);
         }
 
         function setAuthenticatedState(userObj) {
             authenticatedUser = userObj;
+            const identityLabel = userObj.phone ? `📱 ${userObj.phone}` : `🆔 ${userObj.email}`;
             document.getElementById('header-user-pill').classList.add('active');
-            document.getElementById('header-user-email').textContent = `🆔 ${userObj.email}`;
-            document.getElementById('logged-in-userid-display').textContent = `${userObj.id} (${userObj.email})`;
+            document.getElementById('header-user-email').textContent = identityLabel;
+            document.getElementById('logged-in-userid-display').textContent = `${userObj.id} (${userObj.phone || userObj.email})`;
 
             if (userObj.codename) {
                 document.getElementById('user-codename').value = userObj.codename;
@@ -2003,12 +2049,152 @@
             renderQuestion();
         }
 
+        function renderQuestion() {
+            const q = quizData[currentIndex];
+            const total = quizData.length;
+
+            document.getElementById('question-counter').textContent = `คำถามที่ ${currentIndex + 1} / ${total}`;
+            document.getElementById('question-category').textContent = q.category;
+            document.getElementById('progress-fill').style.width = `${((currentIndex + 1) / total) * 100}%`;
+            document.getElementById('question-title').textContent = q.title;
+            document.getElementById('question-context').textContent = q.context;
+
+            const area = document.getElementById('interactive-area');
+            area.innerHTML = '';
+
+            if (q.type === 'choice') {
+                const list = document.createElement('div');
+                list.className = 'options-list';
+                const letters = ['A', 'B', 'C', 'D', 'E'];
+
+                q.options.forEach((opt, idx) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = `option-btn ${userAnswers[currentIndex] === idx ? 'selected' : ''}`;
+                    btn.innerHTML = `
+                        <span class="option-indicator">${letters[idx] || idx + 1}</span>
+                        <span>${opt.text}</span>
+                    `;
+                    btn.onclick = () => {
+                        userAnswers[currentIndex] = idx;
+                        touchedQuestions[currentIndex] = true;
+                        renderQuestion();
+                    };
+                    list.appendChild(btn);
+                });
+                area.appendChild(list);
+
+            } else if (q.type === 'slider') {
+                const currentVal = userAnswers[currentIndex] !== null ? userAnswers[currentIndex] : 4;
+                const container = document.createElement('div');
+                container.className = 'slider-container';
+                container.innerHTML = `
+                    <div id="slider-val-badge" class="slider-value-display">${currentVal}</div>
+                    <div id="slider-desc-text" class="slider-level-desc">${q.levelDescriptions[currentVal]}</div>
+                    <input type="range" id="biao-range-input" class="biao-slider" min="1" max="7" step="1" value="${currentVal}">
+                    <div class="slider-ticks">
+                        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span>
+                    </div>
+                    <div class="slider-labels">
+                        <span>${q.minLabel}</span>
+                        <span>${q.maxLabel}</span>
+                    </div>
+                `;
+                area.appendChild(container);
+
+                const rangeInput = document.getElementById('biao-range-input');
+                rangeInput.addEventListener('input', (e) => {
+                    const val = parseInt(e.target.value, 10);
+                    userAnswers[currentIndex] = val;
+                    touchedQuestions[currentIndex] = true;
+                    document.getElementById('slider-val-badge').textContent = val;
+                    document.getElementById('slider-desc-text').textContent = q.levelDescriptions[val];
+                    updateQuizNavigationState();
+                });
+
+                // อนุญาตให้คลิกยืนยันค่ากลาง (4) ได้ทันทีหากผู้ใช้พอใจค่าเริ่มต้น
+                if (!touchedQuestions[currentIndex]) {
+                    rangeInput.addEventListener('click', () => {
+                        if (userAnswers[currentIndex] === null) {
+                            userAnswers[currentIndex] = 4;
+                            touchedQuestions[currentIndex] = true;
+                            updateQuizNavigationState();
+                        }
+                    });
+                }
+
+            } else if (q.type === 'checkbox') {
+                const grid = document.createElement('div');
+                grid.className = 'checkbox-grid';
+                const selectedArr = Array.isArray(userAnswers[currentIndex]) ? userAnswers[currentIndex] : [];
+
+                q.options.forEach((opt, idx) => {
+                    const isChecked = selectedArr.includes(idx);
+                    const card = document.createElement('div');
+                    card.className = `checkbox-card ${isChecked ? 'checked' : ''}`;
+                    card.innerHTML = `
+                        <div class="custom-checkbox">${isChecked ? '✓' : ''}</div>
+                        <div style="font-size: 0.9rem; font-weight: 500; line-height: 1.4;">${opt.text}</div>
+                    `;
+                    card.onclick = () => {
+                        let updated = Array.isArray(userAnswers[currentIndex]) ? [...userAnswers[currentIndex]] : [];
+                        if (updated.includes(idx)) {
+                            updated = updated.filter(i => i !== idx);
+                        } else {
+                            updated.push(idx);
+                        }
+                        userAnswers[currentIndex] = updated;
+                        touchedQuestions[currentIndex] = true;
+                        renderQuestion();
+                    };
+                    grid.appendChild(card);
+                });
+                area.appendChild(grid);
+            }
+
+            updateQuizNavigationState();
+        }
+
+        function isCurrentQuestionValid() {
+            const q = quizData[currentIndex];
+            const ans = userAnswers[currentIndex];
+            if (q.type === 'choice') return ans !== null;
+            if (q.type === 'slider') return ans !== null && ans >= 1 && ans <= 7;
+            if (q.type === 'checkbox') return Array.isArray(ans) && ans.length >= (q.minSelect || 1);
+            return false;
+        }
+
+        function updateQuizNavigationState() {
+            const btnPrev = document.getElementById('btn-prev');
+            const btnNext = document.getElementById('btn-next');
+            const banner = document.getElementById('quiz-state-banner');
+            const icon = document.getElementById('state-icon');
+            const msg = document.getElementById('state-message');
+
+            btnPrev.style.visibility = currentIndex === 0 ? 'hidden' : 'visible';
+            btnNext.textContent = currentIndex === quizData.length - 1 ? 'ดูผลลัพธ์ความเบียว ✨' : 'ข้อถัดไป →';
+
+            const valid = isCurrentQuestionValid();
+            btnNext.disabled = !valid;
+
+            if (valid) {
+                banner.className = 'state-banner';
+            } else {
+                banner.className = 'state-banner empty-state';
+                icon.textContent = '💡';
+                msg.textContent = quizData[currentIndex].type === 'slider'
+                    ? 'กรุณาเลื่อนแถบระดับ (1-7) เพื่อระบุระดับความมั่นใจของคุณ'
+                    : 'ยังไม่ได้เลือกคำตอบ — กรุณาเลือกคำตอบอย่างน้อย 1 ข้อ';
+            }
+        }
+
         async function createUserProfileBeforeQuiz(codename) {
             if (!supabaseClient) return;
             try {
                 const profilePayload = {
                     auth_user_id: authenticatedUser ? authenticatedUser.id : null,
                     email: authenticatedUser && !authenticatedUser.isGuest ? authenticatedUser.email : null,
+                    phone: authenticatedUser && authenticatedUser.phone ? authenticatedUser.phone : null,
                     codename: codename,
                     device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
                     user_agent: navigator.userAgent
@@ -2122,10 +2308,17 @@
         }
 
         let latestResultSummary = "";
-        // เก็บ State สำหรับ Transaction Tracking (เตรียมส่งเข้า Supabase)
+        // เก็บ State สำหรับ Transaction Tracking & Supabase Record IDs
         let currentSessionPayload = null;
+        let currentDbIds = {
+            userId: null,
+            assessmentId: null,
+            transactionId: null,
+            leaderboardId: null
+        };
+        let productClickCounts = {};
 
-        function calculateAndShowResult() {
+        async function calculateAndShowResult() {
             const score = calculateTotalScore();
             const maxScore = 56;
             const persona = getBiaoPersona(score);
@@ -2140,7 +2333,7 @@
             document.getElementById('res-item').textContent = persona.item;
 
             // ดึงสินค้าแนะนำจากคำตอบข้อที่ 8 (index 7)
-            const q8SelectedIndices = Array.isArray(userAnswers[7]) ? userAnswers[7] : [0];
+            const q8SelectedIndices = Array.isArray(userAnswers[7]) && userAnswers[7].length > 0 ? userAnswers[7] : [0];
             const recommendedProducts = q8SelectedIndices.map(idx => {
                 const tag = quizData[7].options[idx].tag;
                 return productCatalog[tag];
@@ -2148,11 +2341,43 @@
 
             renderRecommendedProducts(recommendedProducts);
 
+            // เก็บรายละเอียดคำตอบรายข้อ (1-8)
+            const answersDetail = quizData.map((q, idx) => {
+                const ans = userAnswers[idx];
+                let qScore = 0;
+                let selectedText = [];
+
+                if (q.type === 'choice' && ans !== null) {
+                    qScore = q.options[ans].score;
+                    selectedText = [q.options[ans].text];
+                } else if (q.type === 'slider' && ans !== null) {
+                    qScore = ans;
+                    selectedText = [`ระดับ ${ans}`];
+                } else if (q.type === 'checkbox' && Array.isArray(ans)) {
+                    let sub = 0;
+                    ans.forEach(i => {
+                        sub += q.options[i].score;
+                        selectedText.push(q.options[i].text);
+                    });
+                    qScore = Math.min(sub, 7);
+                }
+
+                return {
+                    question_id: q.id,
+                    category: q.category,
+                    question_type: q.type,
+                    raw_answer: ans,
+                    selected_text: selectedText,
+                    question_score: qScore
+                };
+            });
+
             // เตรียมโครงสร้างข้อมูลทั้งหมดสำหรับบันทึกเข้า Supabase
             currentSessionPayload = {
                 user_profile: {
                     auth_user_id: authenticatedUser ? authenticatedUser.id : null,
                     email: authenticatedUser && !authenticatedUser.isGuest ? authenticatedUser.email : null,
+                    phone: authenticatedUser && authenticatedUser.phone ? authenticatedUser.phone : null,
                     codename: userCodename,
                     device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
                     user_agent: navigator.userAgent
@@ -2227,194 +2452,6 @@
                 syncTransactionToSupabase();
             }
             switchView('view-products-page');
-        }
-            };
-
-            // รีเซ็ตสถานะปุ่มสนใจผลิตภัณฑ์
-            document.getElementById('btn-interest-yes').className = 'btn-interest-toggle';
-            document.getElementById('btn-interest-no').className = 'btn-interest-toggle';
-            document.getElementById('transaction-log-status').textContent = '';
-
-            latestResultSummary = `ผลวัดระดับความเบียวออนไลน์ [MเบียวTI]\nฉายา: ${userCodename}\nรหัสบุคลิกภาพ: ${persona.code} — "${persona.title}"\nคะแนนความเบียว: ${score}/${maxScore} คะแนน\n${persona.quote}`;
-
-            switchView('view-result');
-
-            // Animate Meter Bar
-            setTimeout(() => {
-                const percentage = Math.round((score / maxScore) * 100);
-                document.getElementById('res-meter-fill').style.width = `${percentage}%`;
-            }, 150);
-        }
-
-        function renderRecommendedProducts(products) {
-            const container = document.getElementById('recommended-products-list');
-            container.innerHTML = '';
-
-            products.forEach(prod => {
-                const itemEl = document.createElement('div');
-                itemEl.className = 'product-item-card';
-                itemEl.innerHTML = `
-                    <div class="product-info">
-                        <h4>${prod.name}</h4>
-                        <p>${prod.desc}</p>
-                        <span class="product-price-tag">ราคาแนะนำ: ${prod.price}</span>
-                    </div>
-                    <a href="${prod.url}" target="_blank" rel="noopener noreferrer" class="btn-order-link" onclick="trackProductClick('${prod.id}', '${prod.name}', this)">
-                        <span>สั่งซื้อสินค้า</span>
-                        <span>↗</span>
-                    </a>
-                `;
-                container.appendChild(itemEl);
-            });
-        }
-
-        function trackProductClick(productId, productName, btnEl) {
-            btnEl.classList.add('clicked');
-            btnEl.innerHTML = '<span>เปิดลิงก์แล้ว ✓</span>';
-
-            if (currentSessionPayload) {
-                currentSessionPayload.transaction_data.is_interested = true;
-                if (!currentSessionPayload.transaction_data.clicked_products.some(p => p.product_id === productId)) {
-                    currentSessionPayload.transaction_data.clicked_products.push({
-                        product_id: productId,
-                        product_name: productName,
-                        clicked_at: new Date().toISOString()
-                    });
-                }
-            }
-            recordProductInterest(true, true);
-        }
-
-        function recordProductInterest(isInterested, fromLinkClick = false) {
-            const btnYes = document.getElementById('btn-interest-yes');
-            const btnNo = document.getElementById('btn-interest-no');
-            const statusEl = document.getElementById('transaction-log-status');
-
-            if (currentSessionPayload) {
-                currentSessionPayload.transaction_data.is_interested = isInterested;
-            }
-
-            if (isInterested) {
-                btnYes.className = 'btn-interest-toggle active-yes';
-                btnNo.className = 'btn-interest-toggle';
-                const clickedCount = currentSessionPayload ? currentSessionPayload.transaction_data.clicked_products.length : 0;
-                statusEl.textContent = fromLinkClick
-                    ? `✓ บันทึก Transaction: ผู้ใช้สนใจและกดดูสินค้าแล้ว (${clickedCount} รายการ)`
-                    : `✓ บันทึก Transaction: ผู้ใช้ระบุว่า "สนใจผลิตภัณฑ์ที่แนะนำ"`;
-            } else {
-                btnYes.className = 'btn-interest-toggle';
-                btnNo.className = 'btn-interest-toggle active-no';
-                statusEl.textContent = `✓ บันทึก Transaction: ผู้ใช้ระบุว่า "ยังไม่สนใจผลิตภัณฑ์ในตอนนี้"`;
-            }
-        }
-
-        let latestResultSummary = "";
-        // เก็บ State สำหรับ Transaction Tracking & Supabase Record IDs
-        let currentSessionPayload = null;
-        let currentDbIds = {
-            userId: null,
-            assessmentId: null,
-            transactionId: null,
-            leaderboardId: null
-        };
-        let productClickCounts = {};
-
-        async function calculateAndShowResult() {
-            const score = calculateTotalScore();
-            const maxScore = 56;
-            const persona = getBiaoPersona(score);
-
-            document.getElementById('res-code').textContent = persona.code;
-            document.getElementById('res-title').textContent = persona.title;
-            document.getElementById('res-user').textContent = `ผลการวิเคราะห์ของ: ${userCodename}`;
-            document.getElementById('res-score').textContent = score;
-            document.getElementById('res-quote').textContent = persona.quote;
-            document.getElementById('res-desc').textContent = persona.desc;
-            document.getElementById('res-aura').textContent = persona.aura;
-            document.getElementById('res-item').textContent = persona.item;
-
-            // ดึงสินค้าแนะนำจากคำตอบข้อที่ 8 (index 7)
-            const q8SelectedIndices = Array.isArray(userAnswers[7]) ? userAnswers[7] : [0];
-            const recommendedProducts = q8SelectedIndices.map(idx => {
-                const tag = quizData[7].options[idx].tag;
-                return productCatalog[tag];
-            });
-
-            renderRecommendedProducts(recommendedProducts);
-
-            // เตรียมโครงสร้างข้อมูลทั้งหมดสำหรับบันทึกเข้า Supabase
-            const answersDetail = quizData.map((q, idx) => {
-                const ans = userAnswers[idx];
-                let qScore = 0;
-                let selectedText = [];
-
-                if (q.type === 'choice' && ans !== null) {
-                    qScore = q.options[ans].score;
-                    selectedText = [q.options[ans].text];
-                } else if (q.type === 'slider' && ans !== null) {
-                    qScore = ans;
-                    selectedText = [`ระดับ ${ans}`];
-                } else if (q.type === 'checkbox' && Array.isArray(ans)) {
-                    let sub = 0;
-                    ans.forEach(i => {
-                        sub += q.options[i].score;
-                        selectedText.push(q.options[i].text);
-                    });
-                    qScore = Math.min(sub, 7);
-                }
-
-                return {
-                    question_id: q.id,
-                    category: q.category,
-                    question_type: q.type,
-                    raw_answer: ans,
-                    selected_text: selectedText,
-                    question_score: qScore
-                };
-            });
-
-            productClickCounts = {};
-
-            currentSessionPayload = {
-                user_profile: {
-                    codename: userCodename,
-                    device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
-                    user_agent: navigator.userAgent
-                },
-                assessment_result: {
-                    total_score: score,
-                    max_score: maxScore,
-                    mbiawti_code: persona.code,
-                    persona_title: persona.title,
-                    aura_level: persona.aura
-                },
-                preferences_answers: answersDetail,
-                transaction_data: {
-                    recommended_product_ids: recommendedProducts.map(p => p.id),
-                    is_interested: null,
-                    total_clicks: 0,
-                    clicked_products: []
-                }
-            };
-
-            // รีเซ็ตสถานะปุ่มสนใจผลิตภัณฑ์
-            document.getElementById('btn-interest-yes').className = 'btn-interest-toggle';
-            document.getElementById('btn-interest-no').className = 'btn-interest-toggle';
-            document.getElementById('transaction-log-status').textContent = '';
-
-            latestResultSummary = `ผลวัดระดับความเบียวออนไลน์ [MเบียวTI]\nฉายา: ${userCodename}\nรหัสบุคลิกภาพ: ${persona.code} — "${persona.title}"\nคะแนนความเบียว: ${score}/${maxScore} คะแนน\n${persona.quote}`;
-
-            switchView('view-result');
-
-            // Animate Meter Bar
-            setTimeout(() => {
-                const percentage = Math.round((score / maxScore) * 100);
-                document.getElementById('res-meter-fill').style.width = `${percentage}%`;
-            }, 150);
-
-            // บันทึกข้อมูลลง Supabase และโหลด Leaderboard
-            await saveAssessmentToSupabase();
-            await fetchLeaderboard();
         }
 
         async function saveAssessmentToSupabase() {
